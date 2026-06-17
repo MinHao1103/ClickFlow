@@ -1,0 +1,22 @@
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class ClickStep:
+    x: int = 0
+    y: int = 0
+    count: int = 1
+    delay: float = 0.0
+    action_type: str = "click"
+    keyboard_text: Optional[str] = None
+    extra_json: Optional[str] = None
+    db_id: Optional[int] = None
+
+    def display_label(self) -> str:
+        d = f"{self.delay:g}"          # 2.0 → "2", 1.5 → "1.5"
+        if self.action_type in ("keyboard_input", "hotkey"):
+            return f"[{self.action_type}] {self.keyboard_text or ''}  間隔{d}秒"
+        if self.action_type == "delay":
+            return f"[delay] 間隔{d}秒"
+        return f"[{self.action_type}] X={self.x} Y={self.y} ×{self.count}次  間隔{d}秒"

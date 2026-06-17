@@ -1,0 +1,20 @@
+# Build
+dist/
+build/
+*.spec
+
+# Runtime
+clicker.db
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
