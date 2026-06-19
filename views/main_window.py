@@ -9,6 +9,7 @@ from services.database_manager import DatabaseManager
 from services.click_executor import ClickExecutor, ExecutionState
 from services.keyboard_monitor import KeyboardMonitor
 from services.mouse_tracker import MouseTracker
+from services.recorder import Recorder
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,6 @@ _C = {
     "danger_dark":   "#b91c1c",
     "danger_bg":     "#fee2e2",
     "warning":       "#b45309",
-    "warning_bg":    "#fef3c7",
     "purple":        "#7c3aed",
     "teal":          "#0891b2",
     # status-bar state backgrounds
@@ -99,6 +99,7 @@ class MainWindow:
             on_finished=self._on_execution_finished,
             on_error=self._on_execution_error,
         )
+        self._recorder: Optional[Recorder] = None
         self._mouse_tracker = MouseTracker(callback=self._on_mouse_move)
         self._keyboard_monitor = KeyboardMonitor(
             on_stop=self._stop_execution,
@@ -244,12 +245,27 @@ class MainWindow:
             relief=[("active", "flat")],
         )
 
+        s.configure("Record.TButton",
+            background=_C["danger"],
+            foreground="white",
+            bordercolor=_C["danger"],
+            font=("Segoe UI", 10, "bold"),
+            padding=(8, 5),
+            relief="flat",
+        )
+        s.map("Record.TButton",
+            background=[("active", _C["danger_dark"]), ("disabled", _C["bg_dark"])],
+            foreground=[("disabled", _C["text_muted"])],
+            relief=[("active", "flat")],
+        )
+
     # ── window ────────────────────────────────────────────────────────────────
 
     def _build_window(self) -> None:
         self._root.title("Automation Script Engine")
-        self._root.geometry("1000x780")
-        self._root.resizable(False, False)
+        self._root.geometry("1120x900")
+        self._root.minsize(960, 720)
+        self._root.resizable(True, True)
         self._root.configure(bg=_C["bg"])
 
     # ── top-level layout ──────────────────────────────────────────────────────
@@ -257,21 +273,20 @@ class MainWindow:
     def _build_ui(self) -> None:
         self._build_tracker_bar()
 
-        # Pack BOTTOM items first so mid's expand=True doesn't consume their space
+        # Status bar at very bottom (pack before mid so it claims its space first)
         self._build_status_bar()
-        self._build_profile_bar()
 
         mid = ttk.Frame(self._root)
-        mid.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 0))
+        mid.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
 
-        # LEFT — fixed width
-        left = ttk.LabelFrame(mid, text="  步驟編輯器", width=280)
+        # LEFT — step editor, fixed width
+        left = ttk.LabelFrame(mid, text="  步驟編輯器", width=270)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
         self._build_step_editor(left)
 
-        # RIGHT — fixed width, pack before center to prevent expand starvation
-        right = ttk.LabelFrame(mid, text="  執行控制", width=230)
+        # RIGHT — control panel (recording + execution + profile), fixed width
+        right = ttk.LabelFrame(mid, text="  控制台", width=260)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         right.pack_propagate(False)
         self._build_execution_panel(right)
@@ -288,32 +303,32 @@ class MainWindow:
                         highlightthickness=1, highlightbackground=_C["border"])
         card.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        inner = tk.Frame(card, bg=_C["card"], padx=14, pady=8)
+        inner = tk.Frame(card, bg=_C["card"], padx=14, pady=5)
         inner.pack(fill=tk.X)
 
         # section label
-        tk.Label(inner, text="即時滑鼠座標", bg=_C["card"],
-                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 16))
+        tk.Label(inner, text="🖱  即時座標", bg=_C["card"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 14))
 
         # X
         tk.Label(inner, text="X", bg=_C["card"],
-                 fg=_C["text_muted"], font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(0, 5))
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
         self._var_mx = tk.IntVar(value=0)
         tk.Label(inner, textvariable=self._var_mx, bg=_C["card"],
-                 fg=_C["accent"], font=("Segoe UI", 22, "bold"),
+                 fg=_C["accent"], font=("Segoe UI", 19, "bold"),
                  width=5, anchor=tk.E).pack(side=tk.LEFT)
 
         # Y
         tk.Label(inner, text="Y", bg=_C["card"],
-                 fg=_C["text_muted"], font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=(18, 5))
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(14, 4))
         self._var_my = tk.IntVar(value=0)
         tk.Label(inner, textvariable=self._var_my, bg=_C["card"],
-                 fg=_C["accent"], font=("Segoe UI", 22, "bold"),
+                 fg=_C["accent"], font=("Segoe UI", 19, "bold"),
                  width=5, anchor=tk.E).pack(side=tk.LEFT)
 
         # divider
         tk.Frame(inner, bg=_C["border"], width=1).pack(
-            side=tk.LEFT, fill=tk.Y, padx=20, pady=2)
+            side=tk.LEFT, fill=tk.Y, padx=18, pady=2)
 
         # capture button
         btn = ttk.Button(inner, text="⊕  擷取座標",
@@ -322,7 +337,7 @@ class MainWindow:
         _Tip(btn, "點擊按鈕或按 S 鍵，將目前游標位置填入步驟編輯器")
 
         tk.Label(inner, text="  ← S 鍵快速觸發", bg=_C["card"],
-                 fg=_C["text_muted"], font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=8)
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=6)
 
     # ── step editor ───────────────────────────────────────────────────────────
 
@@ -368,8 +383,7 @@ class MainWindow:
         tk.Label(row2, text="×", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
         self._var_count = tk.StringVar(value="1")
-        self._ent_count = ttk.Entry(row2, textvariable=self._var_count, width=5)
-        self._ent_count.pack(side=tk.LEFT, padx=(3, 2))
+        ttk.Entry(row2, textvariable=self._var_count, width=5).pack(side=tk.LEFT, padx=(3, 2))
         tk.Label(row2, text="次", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 14))
 
@@ -639,33 +653,69 @@ class MainWindow:
     # ── execution panel ───────────────────────────────────────────────────────
 
     def _build_execution_panel(self, parent: ttk.LabelFrame) -> None:
-        PX = 10   # consistent horizontal padding throughout this panel
+        PX = 10
 
-        # rounds config
-        tk.Label(parent, text="執行輪數", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
-            anchor=tk.W, padx=PX, pady=(12, 0))
+        # ── section helper ────────────────────────────────────────────────────
+        def _sec_header(dot_color: str, title: str, right_widget_fn=None):
+            hdr = tk.Frame(parent, bg=_C["bg"])
+            hdr.pack(fill=tk.X, padx=PX, pady=(7, 3))
+            tk.Label(hdr, text="●", bg=_C["bg"],
+                     fg=dot_color, font=("Segoe UI", 7)).pack(side=tk.LEFT, padx=(0, 5))
+            tk.Label(hdr, text=title, bg=_C["bg"],
+                     fg=_C["text"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+            if right_widget_fn:
+                right_widget_fn(hdr)
 
-        row = tk.Frame(parent, bg=_C["bg"])
-        row.pack(fill=tk.X, padx=PX, pady=(4, 0))
+        # ── 1. 錄製操作 ───────────────────────────────────────────────────────
+        _sec_header(_C["danger"], "錄製操作")
+
+        self._btn_record_start = ttk.Button(
+            parent, text="●  開始錄製",
+            style="Record.TButton", command=self._start_recording,
+        )
+        self._btn_record_start.pack(fill=tk.X, padx=PX, pady=(0, 2))
+
+        self._btn_record_stop = ttk.Button(
+            parent, text="■  停止錄製  [F9]",
+            style="Ghost.TButton", command=self._stop_recording, state=tk.DISABLED,
+        )
+        self._btn_record_stop.pack(fill=tk.X, padx=PX, pady=(0, 4))
+
+        # Compact options row: checkbox left, delay right
+        opt = tk.Frame(parent, bg=_C["bg"])
+        opt.pack(fill=tk.X, padx=PX, pady=(0, 3))
+        self._var_record_move = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opt, text="錄製移動",
+                        variable=self._var_record_move).pack(side=tk.LEFT)
+        tk.Label(opt, text="秒", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
+        self._var_max_delay = tk.StringVar(value="5.0")
+        ttk.Entry(opt, textvariable=self._var_max_delay, width=4).pack(
+            side=tk.RIGHT, padx=(2, 3))
+        tk.Label(opt, text="上限", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 0))
+
+        # ── 2. 執行控制 ───────────────────────────────────────────────────────
+        _sec_header(_C["success"], "執行控制")
+
+        # Rounds row
+        rnd = tk.Frame(parent, bg=_C["bg"])
+        rnd.pack(fill=tk.X, padx=PX, pady=(0, 5))
         self._var_rounds = tk.StringVar(value="1")
-        ttk.Entry(row, textvariable=self._var_rounds, width=6).pack(side=tk.LEFT)
-        tk.Label(row, text=" 輪", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 10)).pack(side=tk.LEFT)
-
+        ttk.Entry(rnd, textvariable=self._var_rounds, width=5).pack(side=tk.LEFT)
+        tk.Label(rnd, text=" 輪", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self._var_infinite = tk.BooleanVar(value=False)
-        ttk.Checkbutton(parent, text="無限循環", variable=self._var_infinite).pack(
-            anchor=tk.W, padx=PX, pady=(4, 0))
+        ttk.Checkbutton(rnd, text="無限循環",
+                        variable=self._var_infinite).pack(side=tk.RIGHT)
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
-            fill=tk.X, padx=PX, pady=8)
-
-        # start / stop
         self._btn_start = ttk.Button(
             parent, text="▶  開始",
             style="Start.TButton", command=self._start_execution,
         )
-        self._btn_start.pack(fill=tk.X, padx=PX, pady=(0, 5))
+        self._btn_start.pack(fill=tk.X, padx=PX, pady=(0, 3))
 
         self._btn_stop = ttk.Button(
             parent, text="■  停止",
@@ -674,111 +724,80 @@ class MainWindow:
         self._btn_stop.pack(fill=tk.X, padx=PX)
         _Tip(self._btn_stop, "按 Space 鍵也可立即停止")
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
-            fill=tk.X, padx=PX, pady=8)
-
-        # live status card
-        tk.Label(parent, text="即時狀態", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
-            anchor=tk.W, padx=PX)
-
-        card = tk.Frame(parent, bg=_C["card"],
-                        highlightthickness=1, highlightbackground=_C["border"])
-        card.pack(fill=tk.X, padx=PX, pady=(5, 0))
-
+        # Compact live-status strip (3 columns in one row)
         self._var_st_round = tk.StringVar(value="—")
         self._var_st_step  = tk.StringVar(value="—")
         self._var_st_click = tk.StringVar(value="—")
 
-        for icon, label, var in (
-            ("↺", "輪次", self._var_st_round),
-            ("▶", "步驟", self._var_st_step),
-            ("◎", "點擊", self._var_st_click),
+        stat = tk.Frame(parent, bg=_C["card"],
+                        highlightthickness=1, highlightbackground=_C["border"])
+        stat.pack(fill=tk.X, padx=PX, pady=(5, 3))
+        for icon, lbl, var in (
+            ("↺", "輪", self._var_st_round),
+            ("▶", "步", self._var_st_step),
+            ("◎", "點", self._var_st_click),
         ):
-            row = tk.Frame(card, bg=_C["card"])
-            row.pack(fill=tk.X, padx=8, pady=5)
-            tk.Label(row, text=f"{icon} {label}", bg=_C["card"],
-                     fg=_C["text_muted"], font=("Segoe UI", 9),
-                     anchor=tk.W).pack(side=tk.LEFT)
-            tk.Label(row, textvariable=var, bg=_C["card"],
-                     fg=_C["accent"], font=("Segoe UI", 11, "bold"),
-                     anchor=tk.E).pack(side=tk.RIGHT, expand=True, fill=tk.X)
+            col = tk.Frame(stat, bg=_C["card"])
+            col.pack(side=tk.LEFT, expand=True, fill=tk.X, pady=4, padx=2)
+            tk.Label(col, text=f"{icon} {lbl}", bg=_C["card"],
+                     fg=_C["text_muted"], font=("Segoe UI", 8)).pack()
+            tk.Label(col, textvariable=var, bg=_C["card"],
+                     fg=_C["accent"], font=("Segoe UI", 9, "bold")).pack()
 
-    # ── profile bar ───────────────────────────────────────────────────────────
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 0))
 
-    def _build_profile_bar(self) -> None:
-        bar = tk.Frame(self._root, bg=_C["bg_dark"],
-                       highlightthickness=1, highlightbackground=_C["border"])
-        bar.pack(fill=tk.X, padx=8, pady=(0, 2), side=tk.BOTTOM)
+        # ── 3. 設定檔 ─────────────────────────────────────────────────────────
+        def _add_new_btn(hdr):
+            ttk.Button(hdr, text="＋ 新增", style="Ghost.TButton",
+                       command=self._new_operation).pack(side=tk.RIGHT)
 
-        inner = tk.Frame(bar, bg=_C["bg_dark"], padx=10, pady=6)
-        inner.pack(fill=tk.X)
+        _sec_header(_C["accent"], "設定檔", _add_new_btn)
 
-        # ── TOP ROW: save fields + action buttons ─────────────────────────────
-        top = tk.Frame(inner, bg=_C["bg_dark"])
-        top.pack(fill=tk.X)
+        # Name / desc stacked
+        for lbl_text, var_attr in (("名稱", "_var_prof_name"), ("描述", "_var_prof_desc")):
+            setattr(self, var_attr, tk.StringVar())
+            row = tk.Frame(parent, bg=_C["bg"])
+            row.pack(fill=tk.X, padx=PX, pady=(0, 3))
+            tk.Label(row, text=lbl_text, bg=_C["bg"], fg=_C["text_muted"],
+                     font=("Segoe UI", 8), width=3, anchor=tk.W).pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=getattr(self, var_attr)).pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Label(top, text="設定檔", bg=_C["bg_dark"],
-                 fg=_C["accent"], font=("Segoe UI", 9, "bold")).pack(
-            side=tk.LEFT, padx=(0, 10))
-        tk.Label(top, text="名稱", bg=_C["bg_dark"],
-                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._var_prof_name = tk.StringVar()
-        ttk.Entry(top, textvariable=self._var_prof_name, width=13).pack(
-            side=tk.LEFT, padx=(3, 8))
-        tk.Label(top, text="描述", bg=_C["bg_dark"],
-                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._var_prof_desc = tk.StringVar()
-        ttk.Entry(top, textvariable=self._var_prof_desc, width=18).pack(
-            side=tk.LEFT, padx=(3, 0))
+        ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
+                   command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 4))
 
-        ttk.Button(top, text="儲存", style="Accent.TButton",
-                   command=self._save_profile).pack(side=tk.RIGHT)
-        tk.Frame(top, bg=_C["border"], width=1).pack(
-            side=tk.RIGHT, fill=tk.Y, padx=8, pady=1)
-        ttk.Button(top, text="＋ 新增操作", style="Ghost.TButton",
-                   command=self._new_operation).pack(side=tk.RIGHT)
-
-        # ── BOTTOM ROW: inline profile list ───────────────────────────────────
-        bot = tk.Frame(inner, bg=_C["bg_dark"])
-        bot.pack(fill=tk.X, pady=(5, 0))
-
-        tk.Label(bot, text="已儲存操作", bg=_C["bg_dark"],
+        tk.Label(parent, text="已儲存操作", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
-            side=tk.LEFT, anchor=tk.N, padx=(0, 8), pady=(2, 0))
+            anchor=tk.W, padx=PX, pady=(0, 2))
 
-        lb_wrap = tk.Frame(bot, bg=_C["bg_dark"])
-        lb_wrap.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        lb_wrap = tk.Frame(parent, bg=_C["bg"])
+        lb_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(0, 3))
         sb = ttk.Scrollbar(lb_wrap, orient=tk.VERTICAL)
         self._lb_profiles = tk.Listbox(
-            lb_wrap,
-            height=3,
+            lb_wrap, height=4,
             selectmode=tk.SINGLE,
             font=("Segoe UI", 9),
-            bg=_C["card"],
-            fg=_C["text"],
-            selectbackground=_C["accent"],
-            selectforeground="white",
-            activestyle="none",
-            borderwidth=0,
-            highlightthickness=1,
-            highlightcolor=_C["accent"],
-            highlightbackground=_C["border"],
-            relief="flat",
+            bg=_C["card"], fg=_C["text"],
+            selectbackground=_C["accent"], selectforeground="white",
+            activestyle="none", borderwidth=0,
+            highlightthickness=1, highlightcolor=_C["accent"],
+            highlightbackground=_C["border"], relief="flat",
             yscrollcommand=sb.set,
         )
         sb.config(command=self._lb_profiles.yview)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._lb_profiles.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._lb_profiles.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._lb_profiles.bind("<ButtonRelease-1>", self._on_lb_profile_select)
         self._lb_profiles.bind("<Double-Button-1>", lambda _e: self._load_selected_profile())
 
-        act = tk.Frame(bot, bg=_C["bg_dark"])
-        act.pack(side=tk.LEFT, padx=(8, 0), anchor=tk.N)
+        act = tk.Frame(parent, bg=_C["bg"])
+        act.pack(fill=tk.X, padx=PX, pady=(0, 8))
         ttk.Button(act, text="載入", style="Accent.TButton",
-                   command=self._load_selected_profile).pack(fill=tk.X, pady=(0, 3))
+                   command=self._load_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
         ttk.Button(act, text="刪除", style="GhostDanger.TButton",
-                   command=self._delete_selected_profile).pack(fill=tk.X)
+                   command=self._delete_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X)
 
     # ── status bar ────────────────────────────────────────────────────────────
 
@@ -821,6 +840,8 @@ class MainWindow:
             return
         self._btn_start.config(state=tk.DISABLED)
         self._btn_stop.config(state=tk.NORMAL)
+        self._btn_record_start.config(state=tk.DISABLED)
+        self._btn_record_stop.config(state=tk.DISABLED)
         self._set_status("執行中…", "run")
         self._executor.start(list(self._steps), rounds)
 
@@ -855,6 +876,8 @@ class MainWindow:
         def _up() -> None:
             self._btn_start.config(state=tk.NORMAL)
             self._btn_stop.config(state=tk.DISABLED)
+            self._btn_record_start.config(state=tk.NORMAL)
+            self._btn_record_stop.config(state=tk.DISABLED)
             self._var_st_round.set("—")
             self._var_st_step.set("—")
             self._var_st_click.set("—")
@@ -865,6 +888,8 @@ class MainWindow:
         def _up() -> None:
             self._btn_start.config(state=tk.NORMAL)
             self._btn_stop.config(state=tk.DISABLED)
+            self._btn_record_start.config(state=tk.NORMAL)
+            self._btn_record_stop.config(state=tk.DISABLED)
             self._set_status(f"執行錯誤：{msg}", "error")
             messagebox.showerror("執行錯誤", msg)
         self._root.after(0, _up)
@@ -942,7 +967,7 @@ class MainWindow:
             messagebox.showerror("資料庫錯誤", str(exc))
 
     def _load_profile(self) -> None:
-        name = self._var_prof_name.get().strip() or self._combo_prof.get()
+        name = self._var_prof_name.get().strip()
         if not name:
             messagebox.showwarning("警告", "請選擇或輸入設定檔名稱")
             return
@@ -962,6 +987,58 @@ class MainWindow:
         except Exception as exc:
             logger.exception("Failed to load profile")
             messagebox.showerror("資料庫錯誤", str(exc))
+
+    # ── callbacks: recording ──────────────────────────────────────────────────
+
+    def _start_recording(self) -> None:
+        if self._steps:
+            if not messagebox.askyesno("開始錄製", "目前步驟將被清除。\n確定要開始錄製嗎？"):
+                return
+            self._steps.clear()
+            self._refresh_list()
+
+        try:
+            max_delay = float(self._var_max_delay.get())
+        except ValueError:
+            messagebox.showerror("輸入錯誤", "延遲上限必須為有效數字")
+            return
+
+        x = self._root.winfo_rootx()
+        y = self._root.winfo_rooty()
+        w = self._root.winfo_width()
+        h = self._root.winfo_height()
+
+        self._keyboard_monitor.stop()
+
+        self._recorder = Recorder(
+            on_step=self._on_step_recorded,
+            on_stopped=lambda: self._root.after(0, self._on_recording_stopped),
+            app_rect=(x, y, w, h),
+            max_delay=max_delay,
+            record_move=self._var_record_move.get(),
+        )
+        self._recorder.start()
+
+        self._btn_record_start.config(state=tk.DISABLED)
+        self._btn_record_stop.config(state=tk.NORMAL)
+        self._btn_start.config(state=tk.DISABLED)
+        self._btn_stop.config(state=tk.DISABLED)
+        self._set_status("●  錄製中…", "record")
+
+    def _stop_recording(self) -> None:
+        if self._recorder and self._recorder.is_recording:
+            self._recorder.stop()
+
+    def _on_step_recorded(self, step: ClickStep) -> None:
+        self._root.after(0, lambda s=step: (self._steps.append(s), self._refresh_list()))
+
+    def _on_recording_stopped(self) -> None:
+        self._keyboard_monitor.start()
+        self._btn_record_start.config(state=tk.NORMAL)
+        self._btn_record_stop.config(state=tk.DISABLED)
+        self._btn_start.config(state=tk.NORMAL)
+        self._btn_stop.config(state=tk.DISABLED)
+        self._set_status(f"✓  錄製完成，共 {len(self._steps)} 步驟", "done")
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -987,10 +1064,11 @@ class MainWindow:
 
     def _set_status(self, msg: str, state: str = "idle") -> None:
         _colors = {
-            "idle":  (_C["sb_idle"],    _C["text_muted"]),
-            "run":   (_C["sb_run"],     _C["success"]),
-            "done":  (_C["success_bg"], _C["success_dark"]),
-            "error": (_C["sb_error"],   _C["danger"]),
+            "idle":   (_C["sb_idle"],    _C["text_muted"]),
+            "run":    (_C["sb_run"],     _C["success"]),
+            "done":   (_C["success_bg"], _C["success_dark"]),
+            "error":  (_C["sb_error"],   _C["danger"]),
+            "record": (_C["danger_bg"],  _C["danger"]),
         }
         bg, fg = _colors.get(state, _colors["idle"])
         self._statusbar.config(bg=bg, fg=fg)
@@ -1000,5 +1078,7 @@ class MainWindow:
         self._mouse_tracker.stop()
         self._keyboard_monitor.stop()
         self._executor.stop()
+        if self._recorder and self._recorder.is_recording:
+            self._recorder.stop()
         logger.info("Program Exit")
         self._root.destroy()
