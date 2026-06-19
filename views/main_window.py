@@ -263,7 +263,7 @@ class MainWindow:
 
     def _build_window(self) -> None:
         self._root.title("Automation Script Engine")
-        self._root.geometry("1120x900")
+        self._root.geometry("1280x960")
         self._root.minsize(960, 720)
         self._root.resizable(True, True)
         self._root.configure(bg=_C["bg"])
@@ -474,23 +474,27 @@ class MainWindow:
         self._btn_commit.config(text="＋  新增步驟")
         self._btn_cancel.config(state=tk.DISABLED)
 
+    @staticmethod
+    def _norm(s: str) -> str:
+        return s.strip().replace("。", ".").replace("．", ".").replace("，", ",")
+
     def _parse_step(self) -> ClickStep:
         action = self._var_action.get()
         x, y = 0, 0
         if action in _COORD_ACTIONS:
             try:
-                x = int(self._var_x.get())
-                y = int(self._var_y.get())
+                x = int(self._norm(self._var_x.get()))
+                y = int(self._norm(self._var_y.get()))
             except ValueError:
                 raise ValueError("X / Y 必須為整數")
         try:
-            count = int(self._var_count.get())
+            count = int(self._norm(self._var_count.get()))
             if count < 1:
                 raise ValueError()
         except ValueError:
             raise ValueError("Count 必須為 ≥ 1 的整數")
         try:
-            delay = float(self._var_delay.get())
+            delay = float(self._norm(self._var_delay.get()))
             if delay < 0:
                 raise ValueError()
         except ValueError:
