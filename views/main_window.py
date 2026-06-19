@@ -57,6 +57,80 @@ _COORD_ACTIONS = {"click", "double_click", "right_click", "move"}
 _KB_ACTIONS    = {"keyboard_input", "hotkey"}
 
 
+# ── Mini execution monitor ────────────────────────────────────────────────────
+class _Mini:
+    """Always-on-top execution monitor shown while automation runs."""
+    W, H = 230, 112
+
+    def __init__(
+        self,
+        root: tk.Tk,
+        var_round: tk.StringVar,
+        var_step: tk.StringVar,
+        var_click: tk.StringVar,
+        on_stop: callable,
+    ) -> None:
+        self._win = tk.Toplevel(root)
+        self._win.wm_attributes("-topmost", True)
+        self._win.wm_attributes("-alpha", 0.93)
+        self._win.overrideredirect(True)
+        self._win.configure(bg=_C["border"])   # thin border via bg colour
+
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = sw - self.W - 24
+        y = sh - self.H - 64
+        self._win.geometry(f"{self.W}x{self.H}+{x}+{y}")
+
+        self._dx = self._dy = 0
+        self._build(var_round, var_step, var_click, on_stop)
+
+    def _build(self, var_round, var_step, var_click, on_stop) -> None:
+        # header — drag handle
+        hdr = tk.Frame(self._win, bg=_C["accent"], height=26)
+        hdr.pack(fill=tk.X)
+        hdr.pack_propagate(False)
+        hdr_lbl = tk.Label(
+            hdr, text="⚙  執行中",
+            bg=_C["accent"], fg="white", font=("Segoe UI", 8, "bold"),
+        )
+        hdr_lbl.pack(side=tk.LEFT, padx=10)
+        for w in (hdr, hdr_lbl):
+            w.bind("<ButtonPress-1>", self._press)
+            w.bind("<B1-Motion>", self._drag)
+
+        # stats row
+        body = tk.Frame(self._win, bg=_C["card"], padx=10, pady=6)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        row = tk.Frame(body, bg=_C["card"])
+        row.pack(fill=tk.X, pady=(0, 6))
+        for icon, lbl, var in (
+            ("↺", "輪", var_round),
+            ("▶", "步驟", var_step),
+            ("◎", "點擊", var_click),
+        ):
+            col = tk.Frame(row, bg=_C["card"])
+            col.pack(side=tk.LEFT, expand=True)
+            tk.Label(col, text=f"{icon} {lbl}", bg=_C["card"],
+                     fg=_C["text_muted"], font=("Segoe UI", 7)).pack()
+            tk.Label(col, textvariable=var, bg=_C["card"],
+                     fg=_C["accent"], font=("Segoe UI", 9, "bold")).pack()
+
+        ttk.Button(body, text="■  停止", style="Stop.TButton",
+                   command=on_stop).pack(fill=tk.X)
+
+    def _press(self, e: tk.Event) -> None:
+        self._dx = e.x_root - self._win.winfo_x()
+        self._dy = e.y_root - self._win.winfo_y()
+
+    def _drag(self, e: tk.Event) -> None:
+        self._win.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
+
+    def destroy(self) -> None:
+        self._win.destroy()
+
+
 # ── Tooltip ───────────────────────────────────────────────────────────────────
 class _Tip:
     def __init__(self, widget: tk.Widget, text: str) -> None:
@@ -100,6 +174,7 @@ class MainWindow:
             on_error=self._on_execution_error,
         )
         self._recorder: Optional[Recorder] = None
+        self._mini: Optional[_Mini] = None
         self._mouse_tracker = MouseTracker(callback=self._on_mouse_move)
         self._keyboard_monitor = KeyboardMonitor(
             on_stop=self._stop_execution,
@@ -848,6 +923,7 @@ class MainWindow:
         self._btn_record_stop.config(state=tk.DISABLED)
         self._set_status("執行中…", "run")
         self._executor.start(list(self._steps), rounds)
+        self._show_mini()
 
     def _parse_rounds(self) -> Optional[int]:
         try:
@@ -862,6 +938,22 @@ class MainWindow:
     def _stop_execution(self) -> None:
         if self._executor.is_running:
             self._executor.stop()
+
+    def _show_mini(self) -> None:
+        self._root.withdraw()
+        self._mini = _Mini(
+            self._root,
+            self._var_st_round,
+            self._var_st_step,
+            self._var_st_click,
+            self._stop_execution,
+        )
+
+    def _close_mini(self) -> None:
+        if self._mini:
+            self._mini.destroy()
+            self._mini = None
+        self._root.deiconify()
 
     def _on_status_update(self, state: ExecutionState) -> None:
         def _up() -> None:
@@ -878,6 +970,7 @@ class MainWindow:
 
     def _on_execution_finished(self) -> None:
         def _up() -> None:
+            self._close_mini()
             self._btn_start.config(state=tk.NORMAL)
             self._btn_stop.config(state=tk.DISABLED)
             self._btn_record_start.config(state=tk.NORMAL)
@@ -890,6 +983,7 @@ class MainWindow:
 
     def _on_execution_error(self, msg: str) -> None:
         def _up() -> None:
+            self._close_mini()
             self._btn_start.config(state=tk.NORMAL)
             self._btn_stop.config(state=tk.DISABLED)
             self._btn_record_start.config(state=tk.NORMAL)
@@ -1082,6 +1176,9 @@ class MainWindow:
         self._mouse_tracker.stop()
         self._keyboard_monitor.stop()
         self._executor.stop()
+        if self._mini:
+            self._mini.destroy()
+            self._mini = None
         if self._recorder and self._recorder.is_recording:
             self._recorder.stop()
         logger.info("Program Exit")
