@@ -1,3 +1,5 @@
+import json
+import os
 import threading
 import time
 import logging
@@ -130,6 +132,35 @@ class ClickExecutor:
             if step.keyboard_text:
                 keys = [k.strip() for k in step.keyboard_text.split("+")]
                 pyautogui.hotkey(*keys)
+            self._interruptible_sleep(step.delay)
+
+        elif action == "image_click":
+            self.state.total_clicks = 1
+            self.state.current_click = 1
+            self._on_status_update(self.state)
+            params   = json.loads(step.extra_json or "{}")
+            path     = params.get("path", "")
+            conf     = float(params.get("confidence", 0.85))
+            timeout  = float(params.get("timeout", 10.0))
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"找不到參考圖片：{path}")
+            deadline = time.monotonic() + timeout
+            center   = None
+            while time.monotonic() < deadline:
+                try:
+                    center = pyautogui.locateCenterOnScreen(path, confidence=conf)
+                except pyautogui.ImageNotFoundException:
+                    center = None
+                if center:
+                    break
+                self._interruptible_sleep(0.5)
+                if self._stop_event.is_set():
+                    return
+            if center is None:
+                raise RuntimeError(
+                    f"在 {timeout} 秒內找不到圖片：{os.path.basename(path)}"
+                )
+            pyautogui.click(center.x, center.y)
             self._interruptible_sleep(step.delay)
 
         else:

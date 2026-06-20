@@ -47,14 +47,17 @@ _ACTION_FG = {
     "delay":          _C["warning"],
     "keyboard_input": _C["success"],
     "hotkey":         _C["success"],
+    "image_click":    _C["teal"],
 }
 
 _ACTION_TYPES = [
     "click", "double_click", "right_click",
     "move", "delay", "keyboard_input", "hotkey",
+    "image_click",
 ]
 _COORD_ACTIONS = {"click", "double_click", "right_click", "move"}
 _KB_ACTIONS    = {"keyboard_input", "hotkey"}
+_IMG_ACTIONS   = {"image_click"}
 
 
 # ── Mini execution monitor ────────────────────────────────────────────────────
@@ -261,6 +264,90 @@ class _Tip:
         if self._win:
             self._win.destroy()
             self._win = None
+
+
+# ── Region selector overlay ───────────────────────────────────────────────────
+class _RegionSelector:
+    """Full-screen screenshot overlay: user drags to select a region to save as reference image."""
+
+    def __init__(self, root: tk.Tk, save_dir: str, on_done: callable) -> None:
+        from PIL import Image, ImageTk
+        import pyautogui as _pag
+        import os as _os, time as _time
+
+        self._on_done  = on_done
+        self._save_dir = save_dir
+
+        # Capture full screen BEFORE the overlay appears
+        self._shot = _pag.screenshot()
+
+        # Calculate DPI scale (physical px vs logical px)
+        lw = root.winfo_screenwidth()
+        lh = root.winfo_screenheight()
+        self._scale_x = self._shot.width  / lw
+        self._scale_y = self._shot.height / lh
+
+        # Resize screenshot to logical resolution for display
+        display = self._shot.resize((lw, lh), Image.LANCZOS)
+        self._img_tk = ImageTk.PhotoImage(display)
+
+        self._win = tk.Toplevel(root)
+        self._win.overrideredirect(True)
+        self._win.wm_attributes("-topmost", True)
+        self._win.geometry(f"{lw}x{lh}+0+0")
+
+        cv = tk.Canvas(self._win, width=lw, height=lh,
+                       cursor="crosshair", highlightthickness=0, bg="black")
+        cv.pack()
+        cv.create_image(0, 0, anchor=tk.NW, image=self._img_tk)
+        cv.create_rectangle(0, 0, lw, lh, fill="black", stipple="gray50", outline="")
+        tk.Label(self._win,
+                 text="拖曳選取目標區域   |   Esc 取消",
+                 bg="#0f172a", fg="#94a3b8",
+                 font=("Segoe UI", 12, "bold")).place(x=lw // 2, y=16, anchor="n")
+
+        self._cv   = cv
+        self._rect = None
+        self._sx = self._sy = 0
+
+        cv.bind("<ButtonPress-1>",   self._press)
+        cv.bind("<B1-Motion>",       self._drag)
+        cv.bind("<ButtonRelease-1>", self._release)
+        self._win.bind("<Escape>",   lambda _: self._cancel())
+
+    def _press(self, e: tk.Event) -> None:
+        self._sx, self._sy = e.x, e.y
+        if self._rect:
+            self._cv.delete(self._rect)
+        self._rect = self._cv.create_rectangle(
+            e.x, e.y, e.x, e.y, outline=_C["accent"], width=2)
+
+    def _drag(self, e: tk.Event) -> None:
+        if self._rect:
+            self._cv.coords(self._rect, self._sx, self._sy, e.x, e.y)
+
+    def _release(self, e: tk.Event) -> None:
+        import os as _os, time as _time
+        x1 = int(min(self._sx, e.x) * self._scale_x)
+        y1 = int(min(self._sy, e.y) * self._scale_y)
+        x2 = int(max(self._sx, e.x) * self._scale_x)
+        y2 = int(max(self._sy, e.y) * self._scale_y)
+        self._win.destroy()
+
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            self._on_done(None)
+            return
+
+        cropped  = self._shot.crop((x1, y1, x2, y2))
+        _os.makedirs(self._save_dir, exist_ok=True)
+        filename = f"img_{int(_time.time() * 1000)}.png"
+        path     = _os.path.join(self._save_dir, filename)
+        cropped.save(path)
+        self._on_done(path)
+
+    def _cancel(self) -> None:
+        self._win.destroy()
+        self._on_done(None)
 
 
 # ── MainWindow ────────────────────────────────────────────────────────────────
@@ -607,8 +694,54 @@ class MainWindow:
 
         self._mk_divider(parent)
 
+        # ── Image click params (hidden until image_click is selected) ──
+        self._frm_img = tk.Frame(parent, bg=_C["bg"])
+        # Not packed yet; _apply_action_state controls visibility
+
+        self._var_img_path = tk.StringVar(value="")
+        path_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        path_row.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(path_row, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=4, anchor=tk.W).pack(side=tk.LEFT)
+        self._lbl_img_name = tk.Label(
+            path_row, textvariable=self._var_img_path,
+            bg=_C["bg"], fg=_C["accent"], font=("Consolas", 8),
+            anchor=tk.W, wraplength=160)
+        self._lbl_img_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        ttk.Button(self._frm_img, text="📷  截取區域",
+                   style="Accent.TButton",
+                   command=self._capture_region).pack(
+            fill=tk.X, padx=10, pady=(0, 4))
+
+        self._lbl_img_preview = tk.Label(self._frm_img, bg=_C["card"],
+                                          relief="flat", borderwidth=0)
+        self._lbl_img_preview.pack(padx=10, pady=(0, 4))
+        self._img_preview_tk = None
+
+        conf_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        conf_row.pack(fill=tk.X, padx=10, pady=(0, 2))
+        tk.Label(conf_row, text="相似度", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._var_conf = tk.StringVar(value="0.85")
+        self._numeric_entry(conf_row, self._var_conf, width=5).pack(
+            side=tk.LEFT, padx=(6, 0))
+        tk.Label(conf_row, text="（0.1–1.0）", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
+
+        tout_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        tout_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tk.Label(tout_row, text="超時", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._var_timeout = tk.StringVar(value="10")
+        self._numeric_entry(tout_row, self._var_timeout, width=5).pack(
+            side=tk.LEFT, padx=(6, 0))
+        tk.Label(tout_row, text="秒（找不到圖片則報錯）", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
+
         # ── Buttons ──
-        btn_area = tk.Frame(parent, bg=_C["bg"])
+        self._btn_area = tk.Frame(parent, bg=_C["bg"])
+        btn_area = self._btn_area
         btn_area.pack(fill=tk.X, padx=10, pady=(8, 10))
 
         self._btn_commit = ttk.Button(
@@ -646,6 +779,10 @@ class MainWindow:
         else:
             hint = ""
         self._lbl_kb_hint.config(text=hint)
+        if action in _IMG_ACTIONS:
+            self._frm_img.pack(fill=tk.X, before=self._btn_area)
+        else:
+            self._frm_img.pack_forget()
 
     # ── commit / parse / clear ────────────────────────────────────────────────
 
@@ -721,6 +858,35 @@ class MainWindow:
         except ValueError:
             raise ValueError("Delay 必須為 ≥ 0 的數值")
         kb = self._var_kb.get().strip() or None
+
+        if action in _IMG_ACTIONS:
+            import json as _json
+            path = self._var_img_path.get().strip()
+            if not path:
+                raise ValueError("請先按「截取區域」選取參考圖片")
+            import os as _os
+            if not _os.path.isfile(path):
+                raise ValueError(f"圖片檔案不存在：{path}")
+            try:
+                conf = float(self._norm(self._var_conf.get()) or "0.85")
+                conf = max(0.1, min(1.0, conf))
+            except ValueError:
+                raise ValueError("相似度請輸入 0.1–1.0 之間的數字")
+            try:
+                timeout = float(self._norm(self._var_timeout.get()) or "10")
+                if timeout <= 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("超時秒數請輸入大於 0 的數字")
+            return ClickStep(
+                action_type="image_click",
+                delay=delay,
+                extra_json=_json.dumps(
+                    {"path": path, "confidence": conf, "timeout": timeout},
+                    ensure_ascii=False,
+                ),
+            )
+
         return ClickStep(x=x, y=y, count=count, delay=delay,
                          action_type=action, keyboard_text=kb)
 
@@ -731,6 +897,11 @@ class MainWindow:
         self._var_count.set("1")
         self._var_delay.set("0")
         self._var_kb.set("")
+        self._var_img_path.set("")
+        self._var_conf.set("0.85")
+        self._var_timeout.set("10")
+        self._lbl_img_preview.config(image="")
+        self._img_preview_tk = None
         self._apply_action_state()
 
     # ── step sequence ─────────────────────────────────────────────────────────
@@ -839,6 +1010,14 @@ class MainWindow:
         self._var_count.set(str(step.count))
         self._var_delay.set(str(step.delay))
         self._var_kb.set(step.keyboard_text or "")
+        if step.action_type in _IMG_ACTIONS:
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            self._var_img_path.set(p.get("path", ""))
+            self._var_conf.set(str(p.get("confidence", 0.85)))
+            self._var_timeout.set(str(p.get("timeout", 10)))
+            if p.get("path"):
+                self._update_img_preview(p["path"])
         self._apply_action_state()
         self._btn_commit.config(text="✓  更新步驟")
         self._btn_cancel.config(state=tk.NORMAL)
@@ -1054,6 +1233,25 @@ class MainWindow:
     def _do_capture(self) -> None:
         self._var_x.set(str(self._var_mx.get()))
         self._var_y.set(str(self._var_my.get()))
+
+    def _capture_region(self) -> None:
+        def on_done(path: Optional[str]) -> None:
+            if not path:
+                return
+            self._var_img_path.set(path)
+            self._update_img_preview(path)
+        _RegionSelector(self._root, save_dir="images", on_done=on_done)
+
+    def _update_img_preview(self, path: str) -> None:
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(path)
+            img.thumbnail((220, 80))
+            self._img_preview_tk = ImageTk.PhotoImage(img)
+            self._lbl_img_preview.config(image=self._img_preview_tk)
+        except Exception:
+            self._lbl_img_preview.config(image="")
+            self._img_preview_tk = None
 
     # ── callbacks: execution ──────────────────────────────────────────────────
 
