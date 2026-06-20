@@ -71,7 +71,9 @@ self._root.after(0, self._some_method)
 
 **hotkey execution**: keys are split on `+` then unpacked to `pyautogui.hotkey()` — e.g. `ctrl+shift+s` → `pyautogui.hotkey("ctrl", "shift", "s")`.
 
-**IME decimal normalization**: all numeric `StringVar`s (X, Y, count, delay, max_delay, rounds) have a `trace_add("write", ...)` callback that calls `_auto_norm()`, which immediately replaces Chinese full-width period `。`→`.` as the user types. `_norm()` (static) does the same plus `.strip()` and is used before `float()`/`int()` parsing in `_parse_step()` and `_start_recording()`.
+**IME decimal normalization — two layers**:
+1. `_disable_ime(widget)` calls `ctypes.windll.imm32.ImmAssociateContext(hwnd, 0)` to fully disassociate Windows IME from a widget on `<Map>`. `_numeric_entry(parent, textvariable, **kw)` wraps `ttk.Entry` and attaches this binding; all six numeric fields (X, Y, count, delay, max_delay, rounds) are created through it.
+2. `_auto_norm(var)` is still registered as a `trace_add("write", ...)` fallback that converts `。`/`．` → `.` on any write. `_norm()` (static) does the same plus `.strip()` and is called before `float()`/`int()` parsing in `_parse_step()` and `_start_recording()`.
 
 ## Overlay Windows
 

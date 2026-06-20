@@ -553,14 +553,14 @@ class MainWindow:
                  font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
         self._var_x = tk.StringVar()
         self._var_x.trace_add("write", lambda *_: self._auto_norm(self._var_x))
-        self._ent_x = ttk.Entry(row, textvariable=self._var_x, width=7)
+        self._ent_x = self._numeric_entry(row, self._var_x, width=7)
         self._ent_x.pack(side=tk.LEFT, padx=(3, 14))
 
         tk.Label(row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
         self._var_y = tk.StringVar()
         self._var_y.trace_add("write", lambda *_: self._auto_norm(self._var_y))
-        self._ent_y = ttk.Entry(row, textvariable=self._var_y, width=7)
+        self._ent_y = self._numeric_entry(row, self._var_y, width=7)
         self._ent_y.pack(side=tk.LEFT, padx=(3, 0))
 
         self._mk_divider(parent)
@@ -573,7 +573,7 @@ class MainWindow:
                  font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
         self._var_count = tk.StringVar(value="1")
         self._var_count.trace_add("write", lambda *_: self._auto_norm(self._var_count))
-        ttk.Entry(row_cnt, textvariable=self._var_count, width=8).pack(side=tk.LEFT, padx=(3, 4))
+        self._numeric_entry(row_cnt, self._var_count, width=8).pack(side=tk.LEFT, padx=(3, 4))
         tk.Label(row_cnt, text="次", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
@@ -587,7 +587,7 @@ class MainWindow:
                  font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
         self._var_delay = tk.StringVar(value="0")
         self._var_delay.trace_add("write", lambda *_: self._auto_norm(self._var_delay))
-        ttk.Entry(row_dly, textvariable=self._var_delay, width=8).pack(
+        self._numeric_entry(row_dly, self._var_delay, width=8).pack(
             side=tk.LEFT, padx=(3, 4))
         tk.Label(row_dly, text="秒", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
@@ -680,6 +680,24 @@ class MainWindow:
         new_val = val.replace("。", ".").replace("．", ".")
         if new_val != val:
             var.set(new_val)
+
+    @staticmethod
+    def _disable_ime(widget: tk.Widget) -> None:
+        """Disassociate Windows IME from a widget so numeric fields receive raw ASCII."""
+        try:
+            import ctypes
+            hwnd = int(widget.winfo_id())
+            if hwnd:
+                ctypes.windll.imm32.ImmAssociateContext(hwnd, 0)
+        except Exception:
+            pass
+
+    def _numeric_entry(self, parent: tk.Widget, textvariable: tk.StringVar,
+                       **kwargs) -> ttk.Entry:
+        """ttk.Entry with IME disabled — for X/Y/count/delay/rounds fields."""
+        e = ttk.Entry(parent, textvariable=textvariable, **kwargs)
+        e.bind("<Map>", lambda _evt, w=e: self._disable_ime(w))
+        return e
 
     def _parse_step(self) -> ClickStep:
         action = self._var_action.get()
@@ -898,7 +916,7 @@ class MainWindow:
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
         self._var_max_delay = tk.StringVar(value="5.0")
         self._var_max_delay.trace_add("write", lambda *_: self._auto_norm(self._var_max_delay))
-        ttk.Entry(opt, textvariable=self._var_max_delay, width=4).pack(
+        self._numeric_entry(opt, self._var_max_delay, width=4).pack(
             side=tk.RIGHT, padx=(2, 3))
         tk.Label(opt, text="上限", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
@@ -913,7 +931,7 @@ class MainWindow:
         rnd.pack(fill=tk.X, padx=PX, pady=(0, 5))
         self._var_rounds = tk.StringVar(value="1")
         self._var_rounds.trace_add("write", lambda *_: self._auto_norm(self._var_rounds))
-        ttk.Entry(rnd, textvariable=self._var_rounds, width=5).pack(side=tk.LEFT)
+        self._numeric_entry(rnd, self._var_rounds, width=5).pack(side=tk.LEFT)
         tk.Label(rnd, text=" 輪", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
         self._var_infinite = tk.BooleanVar(value=False)
