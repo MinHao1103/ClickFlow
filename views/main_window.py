@@ -134,7 +134,7 @@ class _Mini:
 # ── Mini recording monitor ────────────────────────────────────────────────────
 class _MiniRecorder:
     """Always-on-top recording monitor shown while the Recorder is active."""
-    W, H = 270, 132
+    W, H = 300, 340
 
     def __init__(self, root: tk.Tk, on_stop: callable) -> None:
         self._win = tk.Toplevel(root)
@@ -151,8 +151,7 @@ class _MiniRecorder:
 
         self._dx = self._dy = 0
         self._var_count = tk.StringVar(value="0 步驟")
-        self._var_last  = tk.StringVar(value="尚無步驟")
-        self._last_lbl: Optional[tk.Label] = None
+        self._listbox: Optional[tk.Listbox] = None
         self._build(on_stop)
 
     def _build(self, on_stop) -> None:
@@ -168,7 +167,7 @@ class _MiniRecorder:
             w.bind("<ButtonPress-1>", self._press)
             w.bind("<B1-Motion>", self._drag)
 
-        body = tk.Frame(self._win, bg=_C["card"], padx=10, pady=8)
+        body = tk.Frame(self._win, bg=_C["card"], padx=8, pady=6)
         body.pack(fill=tk.BOTH, expand=True)
 
         count_row = tk.Frame(body, bg=_C["card"])
@@ -178,29 +177,42 @@ class _MiniRecorder:
         tk.Label(count_row, textvariable=self._var_count, bg=_C["card"],
                  fg=_C["danger"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(5, 0))
 
-        self._last_lbl = tk.Label(
-            body, textvariable=self._var_last,
-            bg=_C["card"], fg=_C["text_muted"],
-            font=("Consolas", 8), anchor=tk.W,
+        lb_wrap = tk.Frame(body, bg=_C["card"])
+        lb_wrap.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+        sb = ttk.Scrollbar(lb_wrap, orient=tk.VERTICAL)
+        self._listbox = tk.Listbox(
+            lb_wrap,
+            font=("Consolas", 8),
+            bg=_C["card"], fg=_C["text"],
+            selectbackground=_C["accent"], selectforeground="white",
+            activestyle="none", borderwidth=0,
+            highlightthickness=1,
+            highlightcolor=_C["border"], highlightbackground=_C["border"],
+            relief="flat", yscrollcommand=sb.set,
         )
-        self._last_lbl.pack(fill=tk.X, pady=(0, 8))
+        sb.config(command=self._listbox.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         ttk.Button(body, text="■  停止錄製  [F9]", style="Stop.TButton",
                    command=on_stop).pack(fill=tk.X)
 
     def update(self, step: ClickStep, total: int) -> None:
+        if self._listbox is None:
+            return
         self._var_count.set(f"{total} 步驟")
-        label = step.display_label().strip()
-        if len(label) > 34:
-            label = label[:33] + "…"
-        self._var_last.set(label)
-        if self._last_lbl:
-            self._last_lbl.config(bg=_C["success_bg"], fg=_C["success"])
-            self._win.after(350, self._reset_last_style)
+        row_bg = _C["card"] if total % 2 == 1 else "#f8fafc"
+        fg = _ACTION_FG.get(step.action_type, _C["text"])
+        label = f"  #{total:02d}  {step.display_label().strip()}"
+        self._listbox.insert(tk.END, label)
+        self._listbox.itemconfig(tk.END, background=_C["success_bg"], foreground=_C["success"])
+        self._listbox.see(tk.END)
+        idx = self._listbox.size() - 1
+        self._win.after(400, lambda: self._reset_row(idx, row_bg, fg))
 
-    def _reset_last_style(self) -> None:
-        if self._last_lbl:
-            self._last_lbl.config(bg=_C["card"], fg=_C["text_muted"])
+    def _reset_row(self, idx: int, bg: str, fg: str) -> None:
+        if self._listbox and idx < self._listbox.size():
+            self._listbox.itemconfig(idx, background=bg, foreground=fg)
 
     def get_rect(self) -> tuple:
         w = self._win
