@@ -975,6 +975,16 @@ class MainWindow:
         ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
                    command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 4))
 
+        # Pack action buttons at the bottom FIRST so they always have space
+        act = tk.Frame(parent, bg=_C["bg"])
+        act.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(3, 8))
+        ttk.Button(act, text="載入", style="Accent.TButton",
+                   command=self._load_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
+                   command=self._delete_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X)
+
         tk.Label(parent, text="已儲存操作", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
             anchor=tk.W, padx=PX, pady=(0, 2))
@@ -998,15 +1008,6 @@ class MainWindow:
         self._lb_profiles.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._lb_profiles.bind("<ButtonRelease-1>", self._on_lb_profile_select)
         self._lb_profiles.bind("<Double-Button-1>", lambda _e: self._load_selected_profile())
-
-        act = tk.Frame(parent, bg=_C["bg"])
-        act.pack(fill=tk.X, padx=PX, pady=(0, 8))
-        ttk.Button(act, text="載入", style="Accent.TButton",
-                   command=self._load_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
-        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
-                   command=self._delete_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X)
 
     # ── status bar ────────────────────────────────────────────────────────────
 
