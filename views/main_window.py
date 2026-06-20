@@ -136,7 +136,8 @@ class _MiniRecorder:
     """Always-on-top recording monitor shown while the Recorder is active."""
     W, H = 300, 340
 
-    def __init__(self, root: tk.Tk, on_stop: callable) -> None:
+    def __init__(self, root: tk.Tk, on_stop: callable,
+                 on_rect_changed: callable) -> None:
         self._win = tk.Toplevel(root)
         self._win.wm_attributes("-topmost", True)
         self._win.wm_attributes("-alpha", 0.93)
@@ -150,6 +151,7 @@ class _MiniRecorder:
         self._win.geometry(f"{self.W}x{self.H}+{x}+{y}")
 
         self._dx = self._dy = 0
+        self._on_rect_changed = on_rect_changed
         self._var_count = tk.StringVar(value="0 步驟")
         self._listbox: Optional[tk.Listbox] = None
         self._build(on_stop)
@@ -223,10 +225,13 @@ class _MiniRecorder:
         self._dy = e.y_root - self._win.winfo_y()
 
     def _drag(self, e: tk.Event) -> None:
-        self._win.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
+        nx = e.x_root - self._dx
+        ny = e.y_root - self._dy
+        self._win.geometry(f"+{nx}+{ny}")
+        self._on_rect_changed(nx, ny, self.W, self.H)
 
     def destroy(self) -> None:
-        self._last_lbl = None
+        self._listbox = None
         self._win.destroy()
 
 
@@ -1196,7 +1201,7 @@ class MainWindow:
             self._refresh_list()
 
         try:
-            max_delay = float(self._var_max_delay.get())
+            max_delay = float(self._norm(self._var_max_delay.get()))
         except ValueError:
             messagebox.showerror("輸入錯誤", "延遲上限必須為有效數字")
             return
@@ -1230,13 +1235,18 @@ class MainWindow:
 
     def _show_mini_recorder(self) -> None:
         self._root.withdraw()
-        self._mini_rec = _MiniRecorder(self._root, self._stop_recording)
-        # After the mini window renders, redirect recorder's exclusion rect to it
-        self._root.after(150, self._sync_recorder_rect)
+        self._mini_rec = _MiniRecorder(
+            self._root,
+            on_stop=self._stop_recording,
+            on_rect_changed=self._update_recorder_rect,
+        )
+        # Sync rect once after the window has rendered
+        self._root.after(150, lambda: self._update_recorder_rect(
+            *self._mini_rec.get_rect()) if self._mini_rec else None)
 
-    def _sync_recorder_rect(self) -> None:
-        if self._mini_rec and self._recorder:
-            self._recorder._app_rect = self._mini_rec.get_rect()
+    def _update_recorder_rect(self, x: int, y: int, w: int, h: int) -> None:
+        if self._recorder:
+            self._recorder._app_rect = (x, y, w, h)
 
     def _close_mini_recorder(self) -> None:
         if self._mini_rec:

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _DOUBLE_CLICK_INTERVAL = 0.3   # seconds
 _DOUBLE_CLICK_MAX_DIST = 5     # pixels
+_MOVE_MIN_DIST = 10            # pixels — smaller moves are skipped
 
 # Normalised names for modifier keys
 _MODIFIER_KEYS: dict = {}
@@ -237,6 +238,11 @@ class Recorder:
             return
         event_time = time.monotonic()
         with self._lock:
+            if (self._pending_step is not None
+                    and self._pending_step.action_type == "move"
+                    and abs(x - self._pending_step.x) < _MOVE_MIN_DIST
+                    and abs(y - self._pending_step.y) < _MOVE_MIN_DIST):
+                return
             self._do_emit(ClickStep(action_type="move", x=x, y=y), event_time)
 
     # ── keyboard callbacks (pynput keyboard thread) ───────────────────────────
