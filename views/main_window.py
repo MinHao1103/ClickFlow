@@ -15,27 +15,27 @@ logger = logging.getLogger(__name__)
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _C = {
-    "bg":            "#f0f2f5",
-    "bg_dark":       "#e2e8f0",
-    "card":          "#ffffff",
-    "border":        "#cbd5e1",
-    "text":          "#1e293b",
-    "text_muted":    "#64748b",
-    "accent":        "#2563eb",
-    "accent_dark":   "#1d4ed8",
-    "success":       "#16a34a",
-    "success_dark":  "#15803d",
-    "success_bg":    "#dcfce7",
-    "danger":        "#dc2626",
-    "danger_dark":   "#b91c1c",
-    "danger_bg":     "#fee2e2",
-    "warning":       "#b45309",
-    "purple":        "#7c3aed",
-    "teal":          "#0891b2",
+    "bg":            "#0f172a",   # main background — deepest navy
+    "bg_dark":       "#334155",   # elevated surfaces (buttons, scrollbar thumb)
+    "card":          "#1e293b",   # panel / card background
+    "border":        "#475569",   # visible dividers on dark bg
+    "text":          "#e2e8f0",   # primary text
+    "text_muted":    "#94a3b8",   # secondary / hint text
+    "accent":        "#818cf8",   # light indigo — readable on dark
+    "accent_dark":   "#6366f1",   # indigo hover
+    "success":       "#4ade80",   # bright green
+    "success_dark":  "#86efac",   # lighter green (used as fg on dark green bg)
+    "success_bg":    "#052e16",   # very dark green (done status bar)
+    "danger":        "#f87171",   # soft red
+    "danger_dark":   "#dc2626",   # darker red (button hover)
+    "danger_bg":     "#450a0a",   # very dark red (ghost hover / record status bar)
+    "warning":       "#fbbf24",   # amber
+    "purple":        "#c084fc",   # light purple
+    "teal":          "#22d3ee",   # cyan
     # status-bar state backgrounds
-    "sb_idle":       "#e2e8f0",
-    "sb_run":        "#dcfce7",
-    "sb_error":      "#fee2e2",
+    "sb_idle":       "#1e293b",
+    "sb_run":        "#052e16",
+    "sb_error":      "#450a0a",
 }
 
 # Per-action foreground colour in the listbox
@@ -203,7 +203,7 @@ class _MiniRecorder:
         if self._listbox is None:
             return
         self._var_count.set(f"{total} 步驟")
-        row_bg = _C["card"] if total % 2 == 1 else "#f8fafc"
+        row_bg = _C["card"] if total % 2 == 1 else "#263548"
         fg = _ACTION_FG.get(step.action_type, _C["text"])
         label = f"  #{total:02d}  {step.display_label().strip()}"
         self._listbox.insert(tk.END, label)
@@ -252,7 +252,7 @@ class _Tip:
         self._win.wm_geometry(f"+{x}+{y}")
         tk.Label(
             self._win, text=self._text,
-            bg="#fffde7", fg=_C["text"],
+            bg=_C["bg_dark"], fg=_C["text"],
             relief="solid", bd=1,
             font=("Segoe UI", 9), padx=7, pady=3,
         ).pack()
@@ -301,6 +301,12 @@ class MainWindow:
         s = ttk.Style(self._root)
         s.theme_use("clam")
 
+        # Combobox dropdown listbox inherits OS defaults; override for dark theme
+        self._root.option_add("*TCombobox*Listbox*foreground",       _C["text"])
+        self._root.option_add("*TCombobox*Listbox*background",       _C["card"])
+        self._root.option_add("*TCombobox*Listbox*selectBackground", _C["accent"])
+        self._root.option_add("*TCombobox*Listbox*selectForeground", "white")
+
         s.configure(".",
             background=_C["bg"],
             foreground=_C["text"],
@@ -320,7 +326,7 @@ class MainWindow:
         s.configure("TLabelframe.Label",
             background=_C["bg"],
             foreground=_C["accent"],
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 11, "bold"),
         )
         s.configure("TEntry",
             fieldbackground=_C["card"],
@@ -367,7 +373,8 @@ class MainWindow:
             relief="flat",
         )
         s.map("Accent.TButton",
-            background=[("active", _C["accent_dark"]), ("disabled", "#93c5fd")],
+            background=[("active", _C["accent_dark"]), ("disabled", "#3730a3")],
+            foreground=[("disabled", "#a5b4fc")],
             relief=[("active", "flat")],
         )
 
@@ -380,7 +387,8 @@ class MainWindow:
             relief="flat",
         )
         s.map("Start.TButton",
-            background=[("active", _C["success_dark"]), ("disabled", "#86efac")],
+            background=[("active", _C["success_dark"]), ("disabled", "#166534")],
+            foreground=[("disabled", "#4ade80")],
             relief=[("active", "flat")],
         )
 
@@ -460,13 +468,13 @@ class MainWindow:
         mid.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
 
         # LEFT — step editor, fixed width
-        left = ttk.LabelFrame(mid, text="  步驟編輯器", width=270)
+        left = ttk.LabelFrame(mid, text="  步驟編輯器", width=285)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
         self._build_step_editor(left)
 
         # RIGHT — control panel (recording + execution + profile), fixed width
-        right = ttk.LabelFrame(mid, text="  控制台", width=260)
+        right = ttk.LabelFrame(mid, text="  控制台", width=275)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         right.pack_propagate(False)
         self._build_execution_panel(right)
@@ -483,7 +491,7 @@ class MainWindow:
                         highlightthickness=1, highlightbackground=_C["border"])
         card.pack(fill=tk.X, padx=8, pady=(8, 4))
 
-        inner = tk.Frame(card, bg=_C["card"], padx=14, pady=5)
+        inner = tk.Frame(card, bg=_C["card"], padx=14, pady=8)
         inner.pack(fill=tk.X)
 
         # section label
@@ -544,35 +552,44 @@ class MainWindow:
         tk.Label(row, text="X", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
         self._var_x = tk.StringVar()
+        self._var_x.trace_add("write", lambda *_: self._auto_norm(self._var_x))
         self._ent_x = ttk.Entry(row, textvariable=self._var_x, width=7)
         self._ent_x.pack(side=tk.LEFT, padx=(3, 14))
 
         tk.Label(row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
         self._var_y = tk.StringVar()
+        self._var_y.trace_add("write", lambda *_: self._auto_norm(self._var_y))
         self._ent_y = ttk.Entry(row, textvariable=self._var_y, width=7)
         self._ent_y.pack(side=tk.LEFT, padx=(3, 0))
 
         self._mk_divider(parent)
 
-        # ── Count / Delay ──
-        self._mk_field_label(parent, "次數 / 延遲")
-        row2 = tk.Frame(parent, bg=_C["bg"])
-        row2.pack(fill=tk.X, padx=10, pady=(2, 6))
-
-        tk.Label(row2, text="×", bg=_C["bg"], fg=_C["text_muted"],
+        # ── Count ──
+        self._mk_field_label(parent, "執行次數")
+        row_cnt = tk.Frame(parent, bg=_C["bg"])
+        row_cnt.pack(fill=tk.X, padx=10, pady=(2, 6))
+        tk.Label(row_cnt, text="×", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
         self._var_count = tk.StringVar(value="1")
-        ttk.Entry(row2, textvariable=self._var_count, width=5).pack(side=tk.LEFT, padx=(3, 2))
-        tk.Label(row2, text="次", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 14))
+        self._var_count.trace_add("write", lambda *_: self._auto_norm(self._var_count))
+        ttk.Entry(row_cnt, textvariable=self._var_count, width=8).pack(side=tk.LEFT, padx=(3, 4))
+        tk.Label(row_cnt, text="次", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
-        tk.Label(row2, text="⏱", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        self._mk_divider(parent)
+
+        # ── Delay ──
+        self._mk_field_label(parent, "步驟延遲")
+        row_dly = tk.Frame(parent, bg=_C["bg"])
+        row_dly.pack(fill=tk.X, padx=10, pady=(2, 6))
+        tk.Label(row_dly, text="⏱", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
         self._var_delay = tk.StringVar(value="0")
-        ttk.Entry(row2, textvariable=self._var_delay, width=5).pack(
-            side=tk.LEFT, padx=(3, 2))
-        tk.Label(row2, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+        self._var_delay.trace_add("write", lambda *_: self._auto_norm(self._var_delay))
+        ttk.Entry(row_dly, textvariable=self._var_delay, width=8).pack(
+            side=tk.LEFT, padx=(3, 4))
+        tk.Label(row_dly, text="秒", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
         self._mk_divider(parent)
@@ -608,8 +625,8 @@ class MainWindow:
 
     def _mk_field_label(self, parent: tk.Widget, text: str) -> None:
         tk.Label(parent, text=text.upper(), bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold"),
-                 ).pack(anchor=tk.W, padx=10, pady=(8, 0))
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold"),
+                 ).pack(anchor=tk.W, padx=10, pady=(10, 0))
 
     def _mk_divider(self, parent: tk.Widget) -> None:
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
@@ -657,6 +674,12 @@ class MainWindow:
     @staticmethod
     def _norm(s: str) -> str:
         return s.strip().replace("。", ".").replace("．", ".").replace("，", ",")
+
+    def _auto_norm(self, var: tk.StringVar) -> None:
+        val = var.get()
+        new_val = val.replace("。", ".").replace("．", ".")
+        if new_val != val:
+            var.set(new_val)
 
     def _parse_step(self) -> ClickStep:
         action = self._var_action.get()
@@ -732,7 +755,7 @@ class MainWindow:
         self._listbox = tk.Listbox(
             self._frame_list,
             selectmode=tk.SINGLE,
-            font=("Consolas", 10),
+            font=("Consolas", 11),
             bg=_C["card"],
             fg=_C["text"],
             selectbackground=_C["accent"],
@@ -766,9 +789,9 @@ class MainWindow:
         n = len(self._steps)
 
         for i, step in enumerate(self._steps):
-            label = f"  #{i + 1:02d}  {step.display_label()}"
+            label = f"   #{i + 1:02d}   {step.display_label()}"
             self._listbox.insert(tk.END, label)
-            row_bg = _C["card"] if i % 2 == 0 else "#f8fafc"
+            row_bg = _C["card"] if i % 2 == 0 else "#263548"
             fg = _ACTION_FG.get(step.action_type, _C["text"])
             self._listbox.itemconfig(i, background=row_bg, foreground=fg)
 
@@ -842,11 +865,11 @@ class MainWindow:
         # ── section helper ────────────────────────────────────────────────────
         def _sec_header(dot_color: str, title: str, right_widget_fn=None):
             hdr = tk.Frame(parent, bg=_C["bg"])
-            hdr.pack(fill=tk.X, padx=PX, pady=(7, 3))
+            hdr.pack(fill=tk.X, padx=PX, pady=(10, 4))
             tk.Label(hdr, text="●", bg=_C["bg"],
-                     fg=dot_color, font=("Segoe UI", 7)).pack(side=tk.LEFT, padx=(0, 5))
+                     fg=dot_color, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
             tk.Label(hdr, text=title, bg=_C["bg"],
-                     fg=_C["text"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+                     fg=_C["text"], font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
             if right_widget_fn:
                 right_widget_fn(hdr)
 
@@ -874,6 +897,7 @@ class MainWindow:
         tk.Label(opt, text="秒", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
         self._var_max_delay = tk.StringVar(value="5.0")
+        self._var_max_delay.trace_add("write", lambda *_: self._auto_norm(self._var_max_delay))
         ttk.Entry(opt, textvariable=self._var_max_delay, width=4).pack(
             side=tk.RIGHT, padx=(2, 3))
         tk.Label(opt, text="上限", bg=_C["bg"],
@@ -888,6 +912,7 @@ class MainWindow:
         rnd = tk.Frame(parent, bg=_C["bg"])
         rnd.pack(fill=tk.X, padx=PX, pady=(0, 5))
         self._var_rounds = tk.StringVar(value="1")
+        self._var_rounds.trace_add("write", lambda *_: self._auto_norm(self._var_rounds))
         ttk.Entry(rnd, textvariable=self._var_rounds, width=5).pack(side=tk.LEFT)
         tk.Label(rnd, text=" 輪", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT)
