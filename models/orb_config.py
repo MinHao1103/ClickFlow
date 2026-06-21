@@ -11,6 +11,6 @@ class OrbConfig:
     rows:          int = 5
     cols:          int = 6
     drag_speed_ms: int = 25
-    beam_width:    int = 10
-    max_steps:     int = 30
+    beam_width:    int = 30
+    max_steps:     int = 40
     db_id:         int = None

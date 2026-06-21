@@ -655,7 +655,18 @@ class MainWindow:
         self._orb_var_speed    = _row("拖曳速度", None, 25)
         tk.Label(parent, text="ms / 格", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).pack(anchor=tk.W, padx=PX+14)
-        self._orb_var_beam     = _row("求解精度", None, 10)
+        self._orb_var_beam     = _row("求解精度", None, 30)
+        self._orb_var_steps    = _row("最大步數", None, 40)
+
+        # Preset buttons: 標準 / 高精度
+        preset_row = tk.Frame(parent, bg=_C["bg"])
+        preset_row.pack(fill=tk.X, padx=PX, pady=(4, 0))
+        ttk.Button(preset_row, text="標準", style="Ghost.TButton",
+                   command=lambda: self._orb_set_preset(30, 40)).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(preset_row, text="高精度", style="Accent.TButton",
+                   command=lambda: self._orb_set_preset(50, 50)).pack(
+            side=tk.LEFT, expand=True, fill=tk.X)
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=8)
 
@@ -728,7 +739,17 @@ class MainWindow:
         h = self._orb_canvas.winfo_height()
         self._orb_canvas.coords(self._orb_canvas_hint, w // 2, h // 2)
 
-    # ── orb callbacks (stubs — wired up as modules are implemented) ───────────
+    def _orb_set_preset(self, beam: int, steps: int) -> None:
+        self._orb_var_beam.set(str(beam))
+        self._orb_var_steps.set(str(steps))
+        if self._orb_config:
+            self._orb_config.beam_width = beam
+            self._orb_config.max_steps  = steps
+        self._lbl_orb_status.config(
+            text=f"精度設為：求解精度 {beam}，最大步數 {steps}",
+            fg=_C["text_muted"])
+
+    # ── orb callbacks ─────────────────────────────────────────────────────────
 
     def _orb_calibrate(self) -> None:
         from models.orb_config import OrbConfig
@@ -748,7 +769,8 @@ class MainWindow:
                     cell_w=cell_w, cell_h=cell_h,
                     rows=rows, cols=cols,
                     drag_speed_ms=int(self._orb_var_speed.get() or 25),
-                    beam_width=int(self._orb_var_beam.get() or 10),
+                    beam_width=int(self._orb_var_beam.get() or 30),
+                    max_steps=int(self._orb_var_steps.get() or 40),
                 )
                 self._orb_board_img = path
                 self._orb_show_preview_image(path)
