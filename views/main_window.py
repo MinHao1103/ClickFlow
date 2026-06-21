@@ -1466,39 +1466,28 @@ class MainWindow:
         ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
                    command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 4))
 
-        # Pack action buttons at the bottom FIRST so they always have space
+        tk.Label(parent, text="已儲存操作", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
+            anchor=tk.W, padx=PX, pady=(4, 2))
+
+        self._var_prof_select = tk.StringVar()
+        self._cb_profiles = ttk.Combobox(
+            parent,
+            textvariable=self._var_prof_select,
+            state="readonly",
+            font=("Segoe UI", 9),
+        )
+        self._cb_profiles.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        self._cb_profiles.bind("<<ComboboxSelected>>", self._on_cb_profile_select)
+
         act = tk.Frame(parent, bg=_C["bg"])
-        act.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(3, 8))
+        act.pack(fill=tk.X, padx=PX, pady=(0, 8))
         ttk.Button(act, text="載入", style="Accent.TButton",
                    command=self._load_selected_profile).pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
         ttk.Button(act, text="刪除", style="GhostDanger.TButton",
                    command=self._delete_selected_profile).pack(
             side=tk.LEFT, expand=True, fill=tk.X)
-
-        tk.Label(parent, text="已儲存操作", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
-            anchor=tk.W, padx=PX, pady=(0, 2))
-
-        lb_wrap = tk.Frame(parent, bg=_C["bg"])
-        lb_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(0, 3))
-        sb = ttk.Scrollbar(lb_wrap, orient=tk.VERTICAL)
-        self._lb_profiles = tk.Listbox(
-            lb_wrap, height=4,
-            selectmode=tk.SINGLE,
-            font=("Segoe UI", 9),
-            bg=_C["card"], fg=_C["text"],
-            selectbackground=_C["accent"], selectforeground="white",
-            activestyle="none", borderwidth=0,
-            highlightthickness=1, highlightcolor=_C["accent"],
-            highlightbackground=_C["border"], relief="flat",
-            yscrollcommand=sb.set,
-        )
-        sb.config(command=self._lb_profiles.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._lb_profiles.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._lb_profiles.bind("<ButtonRelease-1>", self._on_lb_profile_select)
-        self._lb_profiles.bind("<Double-Button-1>", lambda _e: self._load_selected_profile())
 
     # ── status bar ────────────────────────────────────────────────────────────
 
@@ -1642,34 +1631,32 @@ class MainWindow:
             logger.exception("Failed to list profiles")
             messagebox.showerror("資料庫錯誤", str(exc))
             return
-        self._lb_profiles.delete(0, tk.END)
-        for n in names:
-            self._lb_profiles.insert(tk.END, f"  {n}")
-        # re-highlight the active profile
-        for i in range(self._lb_profiles.size()):
-            if self._lb_profiles.get(i).strip() == self._active_profile:
-                self._lb_profiles.selection_set(i)
-                break
+        self._cb_profiles["values"] = names
+        if self._active_profile in names:
+            self._var_prof_select.set(self._active_profile)
+        elif names:
+            self._var_prof_select.set(names[0])
+        else:
+            self._var_prof_select.set("")
 
-    def _on_lb_profile_select(self, _e: tk.Event) -> None:
-        sel = self._lb_profiles.curselection()
-        if sel:
-            self._var_prof_name.set(self._lb_profiles.get(sel[0]).strip())
+    def _on_cb_profile_select(self, _e: tk.Event) -> None:
+        name = self._var_prof_select.get()
+        if name:
+            self._var_prof_name.set(name)
 
     def _load_selected_profile(self) -> None:
-        sel = self._lb_profiles.curselection()
-        if not sel:
-            messagebox.showwarning("提示", "請先在列表中選取一個操作")
+        name = self._var_prof_select.get()
+        if not name:
+            messagebox.showwarning("提示", "請先從下拉選單選取一個操作")
             return
-        self._var_prof_name.set(self._lb_profiles.get(sel[0]).strip())
+        self._var_prof_name.set(name)
         self._load_profile()
 
     def _delete_selected_profile(self) -> None:
-        sel = self._lb_profiles.curselection()
-        if not sel:
-            messagebox.showwarning("提示", "請先在列表中選取一個操作")
+        name = self._var_prof_select.get()
+        if not name:
+            messagebox.showwarning("提示", "請先從下拉選單選取一個操作")
             return
-        name = self._lb_profiles.get(sel[0]).strip()
         if not messagebox.askyesno("確認刪除", f"確定要刪除「{name}」嗎？\n此操作無法復原。"):
             return
         try:
@@ -1822,7 +1809,7 @@ class MainWindow:
         self._active_profile = ""
         self._var_prof_name.set("")
         self._var_prof_desc.set("")
-        self._lb_profiles.selection_clear(0, tk.END)
+        self._var_prof_select.set("")
         self._exit_edit_mode()
         self._clear_fields()
         self._refresh_list()
