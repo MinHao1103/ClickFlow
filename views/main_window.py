@@ -581,8 +581,14 @@ class MainWindow:
         self._build_orb_tab(tab2)
 
     def _build_automation_tab(self, parent: ttk.Frame) -> None:
+        # Notebook tab frames are managed by 'place' internally.
+        # Using grid(sticky="nsew") ensures mid receives the full tab area height.
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
+
         mid = ttk.Frame(parent)
-        mid.pack(fill=tk.BOTH, expand=True, padx=0, pady=(4, 4))
+        mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
+        mid.rowconfigure(0, weight=1)
 
         # LEFT — step editor, fixed width
         left = ttk.LabelFrame(mid, text="  步驟編輯器", width=285)
@@ -602,8 +608,12 @@ class MainWindow:
         self._build_step_sequence(center)
 
     def _build_orb_tab(self, parent: ttk.Frame) -> None:
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
+
         mid = ttk.Frame(parent)
-        mid.pack(fill=tk.BOTH, expand=True, padx=0, pady=4)
+        mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=4)
+        mid.rowconfigure(0, weight=1)
 
         # ── LEFT: settings panel ──────────────────────────────────────────────
         left = ttk.LabelFrame(mid, text="  盤面設定", width=230)
