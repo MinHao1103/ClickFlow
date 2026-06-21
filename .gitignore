@@ -1,7 +1,8 @@
-# Build
+# Build artifacts
 dist/
 build/
-*.spec
+*.exe
+AutomationScriptEngine.spec
 
 # Runtime
 clicker.db
