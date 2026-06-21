@@ -1716,6 +1716,8 @@ class MainWindow:
     def _stop_execution(self) -> None:
         if self._executor.is_running:
             self._executor.stop()
+        if self._orb_loop_active:
+            self._root.after(0, self._orb_stop_loop)
 
     def _show_mini(self) -> None:
         self._root.withdraw()
