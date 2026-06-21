@@ -805,8 +805,8 @@ class MainWindow:
                     cell_w=cell_w, cell_h=cell_h,
                     rows=rows, cols=cols,
                     drag_speed_ms=int(self._orb_var_speed.get() or 25),
-                    beam_width=int(self._orb_var_beam.get() or 30),
-                    max_steps=int(self._orb_var_steps.get() or 40),
+                    beam_width=int(self._orb_var_beam.get() or 50),
+                    max_steps=int(self._orb_var_steps.get() or 50),
                 )
                 self._orb_board_img = path
                 self._orb_show_preview_image(path)
@@ -854,9 +854,9 @@ class MainWindow:
         # Activate continuous loop on first manual call if checkbox is on
         if self._orb_var_loop.get() and not self._orb_loop_active:
             self._orb_loop_active = True
-            self._btn_orb_run.pack_forget()
-            self._btn_orb_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
-        self._btn_orb_run.config(state=tk.DISABLED)
+        # Always swap run→stop while executing (single or continuous)
+        self._btn_orb_run.pack_forget()
+        self._btn_orb_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
         self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
 
         def _worker():
@@ -972,7 +972,7 @@ class MainWindow:
         if self._orb_executor and self._orb_executor.is_running:
             self._orb_executor.abort()
         self._orb_reset_run_btn()
-        self._lbl_orb_status.config(text="連續模式已停止", fg=_C["text_muted"])
+        self._lbl_orb_status.config(text="已停止", fg=_C["text_muted"])
 
     def _orb_reset_run_btn(self) -> None:
         self._orb_loop_active = False
