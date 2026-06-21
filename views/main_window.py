@@ -1466,6 +1466,16 @@ class MainWindow:
         ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
                    command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 4))
 
+        # Pack buttons at BOTTOM first so they always have space
+        act = tk.Frame(parent, bg=_C["bg"])
+        act.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(3, 8))
+        ttk.Button(act, text="載入", style="Accent.TButton",
+                   command=self._load_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
+                   command=self._delete_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X)
+
         tk.Label(parent, text="已儲存操作", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
             anchor=tk.W, padx=PX, pady=(4, 2))
@@ -1477,17 +1487,8 @@ class MainWindow:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self._cb_profiles.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        self._cb_profiles.pack(fill=tk.X, padx=PX, pady=(0, 4))
         self._cb_profiles.bind("<<ComboboxSelected>>", self._on_cb_profile_select)
-
-        act = tk.Frame(parent, bg=_C["bg"])
-        act.pack(fill=tk.X, padx=PX, pady=(0, 8))
-        ttk.Button(act, text="載入", style="Accent.TButton",
-                   command=self._load_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
-        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
-                   command=self._delete_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X)
 
     # ── status bar ────────────────────────────────────────────────────────────
 
