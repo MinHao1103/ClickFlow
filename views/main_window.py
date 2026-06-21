@@ -572,6 +572,11 @@ class MainWindow:
         self._build_tracker_bar()
         self._build_status_bar()
 
+        # Window-binding state for each tab (mutable dicts passed by reference)
+        # hwnd is a fast-path cache; title is used to re-locate if hwnd becomes stale
+        self._tab1_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
+        self._tab2_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
+
         nb = ttk.Notebook(self._root)
         nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
 
@@ -638,7 +643,11 @@ class MainWindow:
                    command=self._orb_calibrate).pack(
             fill=tk.X, padx=PX, pady=(12, 6))
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
+
+        # ── Window binding (optional) ─────────────────────────────────────────
+        self._build_window_picker(parent, self._tab2_win, PX)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
 
         def _row(label, var, default):
             r = tk.Frame(parent, bg=_C["bg"])
@@ -655,8 +664,8 @@ class MainWindow:
         self._orb_var_speed    = _row("拖曳速度", None, 25)
         tk.Label(parent, text="ms / 格", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).pack(anchor=tk.W, padx=PX+14)
-        self._orb_var_beam     = _row("求解精度", None, 30)
-        self._orb_var_steps    = _row("最大步數", None, 40)
+        self._orb_var_beam     = _row("求解精度", None, 50)
+        self._orb_var_steps    = _row("最大步數", None, 50)
 
         # Preset buttons: 標準 / 高精度 — store refs so _orb_set_preset can toggle styles
         preset_row = tk.Frame(parent, bg=_C["bg"])
@@ -666,7 +675,7 @@ class MainWindow:
             command=lambda: self._orb_set_preset(30, 40))
         self._btn_preset_std.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         self._btn_preset_hi = ttk.Button(
-            preset_row, text="高精度", style="Ghost.TButton",
+            preset_row, text="高精度", style="Accent.TButton",
             command=lambda: self._orb_set_preset(50, 50))
         self._btn_preset_hi.pack(side=tk.LEFT, expand=True, fill=tk.X)
 
@@ -818,7 +827,14 @@ class MainWindow:
         try:
             from services.orb_board import OrbBoard
             from services.orb_solver import score_board
-            board_svc = OrbBoard(self._orb_config)
+            config = self._orb_config
+            dx, dy = self._get_window_offset(self._tab2_win)
+            if dx != 0 or dy != 0:
+                import copy as _copy
+                config = _copy.copy(config)
+                config.board_x += dx
+                config.board_y += dy
+            board_svc = OrbBoard(config)
             board = board_svc.snapshot()
             self._orb_draw_board(board)
             current = score_board(board)
@@ -849,12 +865,27 @@ class MainWindow:
                 from services.orb_solver import OrbSolver
                 from services.orb_executor import OrbExecutor
 
-                board = OrbBoard(self._orb_config).snapshot()
+                # Apply window-binding offset if active
+                config = self._orb_config
+                if self._tab2_win.get("title"):
+                    if self._resolve_bound_window(self._tab2_win) is None:
+                        self._root.after(0, lambda: messagebox.showwarning(
+                            "綁定視窗", "找不到綁定的視窗，請重新整理並選擇"))
+                        self._root.after(0, self._orb_reset_run_btn)
+                        return
+                    dx, dy = self._get_window_offset(self._tab2_win)
+                    if dx != 0 or dy != 0:
+                        import copy as _copy
+                        config = _copy.copy(config)
+                        config.board_x += dx
+                        config.board_y += dy
+
+                board = OrbBoard(config).snapshot()
                 self._root.after(0, lambda: self._orb_draw_board(board))
                 self._root.after(0, lambda: self._lbl_orb_status.config(
                     text="求解中…", fg=_C["warning"]))
 
-                path, predicted = OrbSolver(self._orb_config).solve(board)
+                path, predicted = OrbSolver(config).solve(board)
 
                 if not path:
                     self._root.after(0, lambda: self._lbl_orb_status.config(
@@ -868,7 +899,7 @@ class MainWindow:
                     text=f"執行中… 預測 {predicted} combo，{len(path)} 步",
                     fg=_C["success"]))
 
-                executor = OrbExecutor(self._orb_config)
+                executor = OrbExecutor(config)
                 self._orb_executor = executor
 
                 def on_done():
@@ -909,7 +940,14 @@ class MainWindow:
         def _check():
             try:
                 from services.orb_board import OrbBoard, EMPTY
-                board = OrbBoard(self._orb_config).snapshot()
+                config = self._orb_config
+                dx, dy = self._get_window_offset(self._tab2_win)
+                if dx != 0 or dy != 0:
+                    import copy as _copy
+                    config = _copy.copy(config)
+                    config.board_x += dx
+                    config.board_y += dy
+                board = OrbBoard(config).snapshot()
                 flat  = [cell for row in board for cell in row]
                 total = len(flat)
                 empty_count = flat.count(EMPTY)
@@ -1530,10 +1568,122 @@ class MainWindow:
             self._steps.clear()
             self._refresh_list()
 
+    # ── window binding helpers ────────────────────────────────────────────────
+
+    def _build_window_picker(self, parent: tk.Widget, binding: dict, padx: int = 10) -> None:
+        """Render a compact window-binding row. Mutates `binding` dict in place."""
+        row = tk.Frame(parent, bg=_C["bg"])
+        row.pack(fill=tk.X, padx=padx, pady=(4, 2))
+
+        tk.Label(row, text="綁定視窗", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+
+        win_var = tk.StringVar(value="(不綁定)")
+        cb = ttk.Combobox(row, textvariable=win_var, state="readonly",
+                          font=("Segoe UI", 8))
+        cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def _refresh():
+            from services.window_manager import list_windows
+            wins = list_windows()
+            win_map: dict[str, int] = {}
+            titles = ["(不綁定)"]
+            for hwnd, title in wins:
+                key = title
+                if key in win_map:
+                    key = f"{title} [0x{hwnd:X}]"
+                win_map[key] = hwnd
+                titles.append(key)
+            binding["map"] = win_map
+            cb["values"] = titles
+            if win_var.get() not in titles:
+                win_var.set("(不綁定)")
+                binding["hwnd"] = None
+
+        def _on_select(_e=None):
+            val = win_var.get()
+            win_map = binding.get("map", {})
+            if val == "(不綁定)" or val not in win_map:
+                binding["hwnd"]  = None
+                binding["title"] = None
+                binding["ref"]   = (0, 0)
+                return
+            hwnd = win_map[val]
+            from services.window_manager import get_window_rect
+            rect = get_window_rect(hwnd)
+            if rect is None:
+                messagebox.showwarning("綁定視窗", "無法取得視窗位置，請重新整理")
+                win_var.set("(不綁定)")
+                return
+            binding["hwnd"]  = hwnd
+            binding["title"] = val      # used to re-locate window if hwnd goes stale
+            binding["ref"]   = (rect[0], rect[1])
+
+        ttk.Button(row, text="↻", style="Ghost.TButton",
+                   command=_refresh).pack(side=tk.LEFT, padx=(2, 0))
+        cb.bind("<<ComboboxSelected>>", _on_select)
+        _refresh()
+
+    def _resolve_bound_window(self, binding: dict) -> int | None:
+        """Return a live hwnd for the bound window.
+        Tries the cached hwnd first; if stale, searches by title and updates the cache."""
+        title = binding.get("title")
+        if not title:
+            return None
+        hwnd = binding.get("hwnd")
+        from services.window_manager import is_window_valid, list_windows
+        if hwnd and is_window_valid(hwnd):
+            return hwnd
+        # hwnd gone (window closed & reopened) — search by title
+        for h, t in list_windows():
+            if t == title:
+                binding["hwnd"] = h     # refresh cache
+                return h
+        return None
+
+    def _get_window_offset(self, binding: dict) -> tuple[int, int]:
+        """Return (dx, dy) = current_win_pos - ref_pos. Returns (0,0) if unbound/gone."""
+        hwnd = self._resolve_bound_window(binding)
+        if hwnd is None:
+            return (0, 0)
+        from services.window_manager import get_window_rect
+        rect = get_window_rect(hwnd)
+        if rect is None:
+            return (0, 0)
+        ref_x, ref_y = binding["ref"]
+        return (rect[0] - ref_x, rect[1] - ref_y)
+
+    @staticmethod
+    def _offset_step(step: "ClickStep", dx: int, dy: int) -> "ClickStep":
+        """Return a copy of step with (dx, dy) added to its screen coordinates."""
+        if dx == 0 and dy == 0:
+            return step
+        import copy, json as _json
+        s = copy.copy(step)
+        if step.action_type in ("click", "double_click", "right_click", "move"):
+            s.x = step.x + dx
+            s.y = step.y + dy
+        elif step.action_type == "drag":
+            s.x = step.x + dx
+            s.y = step.y + dy
+            if step.extra_json:
+                try:
+                    extra = _json.loads(step.extra_json)
+                    extra["to_x"] = extra.get("to_x", 0) + dx
+                    extra["to_y"] = extra.get("to_y", 0) + dy
+                    s.extra_json = _json.dumps(extra)
+                except Exception:
+                    pass
+        return s
+
     # ── execution panel ───────────────────────────────────────────────────────
 
     def _build_execution_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
+
+        # ── Window binding (optional) ─────────────────────────────────────────
+        self._build_window_picker(parent, self._tab1_win, PX)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 0))
 
         # ── section helper ────────────────────────────────────────────────────
         def _sec_header(dot_color: str, title: str, right_widget_fn=None):
@@ -1735,7 +1885,19 @@ class MainWindow:
         self._btn_record_start.config(state=tk.DISABLED)
         self._btn_record_stop.config(state=tk.DISABLED)
         self._set_status("執行中…", "run")
-        self._executor.start(list(self._steps), rounds)
+        steps = list(self._steps)
+        if self._tab1_win.get("title"):
+            if self._resolve_bound_window(self._tab1_win) is None:
+                messagebox.showwarning("綁定視窗", "找不到綁定的視窗，請重新整理並選擇")
+                self._btn_start.config(state=tk.NORMAL)
+                self._btn_stop.config(state=tk.DISABLED)
+                self._btn_record_start.config(state=tk.NORMAL)
+                self._set_status("就緒", "idle")
+                return
+            dx, dy = self._get_window_offset(self._tab1_win)
+            if dx != 0 or dy != 0:
+                steps = [self._offset_step(s, dx, dy) for s in steps]
+        self._executor.start(steps, rounds)
         self._show_mini()
 
     def _parse_rounds(self) -> Optional[int]:
@@ -1749,10 +1911,24 @@ class MainWindow:
             return None
 
     def _stop_execution(self) -> None:
+        # Called from KeyboardMonitor thread — only threading.Event / plain bool ops here.
+        # Tab-1 executor stop (threading.Event — thread-safe)
         if self._executor.is_running:
             self._executor.stop()
-        if self._orb_loop_active:
-            self._root.after(0, self._orb_stop_loop)
+        # Tab-2: abort drag immediately and kill loop flag so worker won't reschedule
+        if self._orb_executor and self._orb_executor.is_running:
+            self._orb_executor.abort()
+        self._orb_loop_active = False
+        # Tkinter calls must happen on the GUI thread
+        self._root.after(0, self._space_stop_cleanup)
+
+    def _space_stop_cleanup(self) -> None:
+        """GUI-thread: cancel pending after-timers and reset button state."""
+        if self._orb_loop_after:
+            self._root.after_cancel(self._orb_loop_after)
+            self._orb_loop_after = None
+        self._orb_reset_run_btn()
+        self._lbl_orb_status.config(text="已停止", fg=_C["text_muted"])
 
     def _show_mini(self) -> None:
         self._root.withdraw()
