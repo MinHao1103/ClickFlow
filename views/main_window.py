@@ -330,14 +330,18 @@ class _RegionSelector:
 
     def _release(self, e: tk.Event) -> None:
         import os as _os, time as _time
-        x1 = int(min(self._sx, e.x) * self._scale_x)
-        y1 = int(min(self._sy, e.y) * self._scale_y)
+        # logical (display) coords — used by pyautogui for mouse control
+        lx1 = int(min(self._sx, e.x))
+        ly1 = int(min(self._sy, e.y))
+        # physical pixel coords — used for image cropping
+        x1 = int(lx1 * self._scale_x)
+        y1 = int(ly1 * self._scale_y)
         x2 = int(max(self._sx, e.x) * self._scale_x)
         y2 = int(max(self._sy, e.y) * self._scale_y)
         self._win.destroy()
 
         if x2 - x1 < 8 or y2 - y1 < 8:
-            self._on_done(None)
+            self._on_done(None, 0, 0)
             return
 
         cropped  = self._shot.crop((x1, y1, x2, y2))
@@ -345,11 +349,11 @@ class _RegionSelector:
         filename = f"img_{int(_time.time() * 1000)}.png"
         path     = _os.path.join(self._save_dir, filename)
         cropped.save(path)
-        self._on_done(path)
+        self._on_done(path, lx1, ly1)
 
     def _cancel(self) -> None:
         self._win.destroy()
-        self._on_done(None)
+        self._on_done(None, 0, 0)
 
 
 # ── MainWindow ────────────────────────────────────────────────────────────────
@@ -717,6 +721,7 @@ class MainWindow:
         # internal state
         self._orb_config    = None   # OrbConfig instance once calibrated
         self._orb_board_img = None   # latest PIL screenshot for preview
+        self._orb_executor  = None   # OrbExecutor instance during execution
 
     def _orb_canvas_resize(self, _e: tk.Event) -> None:
         w = self._orb_canvas.winfo_width()
@@ -727,10 +732,9 @@ class MainWindow:
 
     def _orb_calibrate(self) -> None:
         from models.orb_config import OrbConfig
-        def on_done(path):
+        def on_done(path, bx, by):
             if not path:
                 return
-            # Derive cell size from the cropped image and grid settings
             try:
                 from PIL import Image
                 img = Image.open(path)
@@ -738,11 +742,9 @@ class MainWindow:
                 cols = int(self._orb_var_cols.get() or 6)
                 cell_w = img.width  // cols
                 cell_h = img.height // rows
-                # Board origin: get from region selector via saved path
-                # For now store config without origin (user must re-calibrate coords)
                 self._orb_config = OrbConfig(
                     name="default",
-                    board_x=0, board_y=0,
+                    board_x=bx, board_y=by,
                     cell_w=cell_w, cell_h=cell_h,
                     rows=rows, cols=cols,
                     drag_speed_ms=int(self._orb_var_speed.get() or 25),
@@ -751,7 +753,7 @@ class MainWindow:
                 self._orb_board_img = path
                 self._orb_show_preview_image(path)
                 self._lbl_orb_status.config(
-                    text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px",
+                    text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px  原點({bx},{by})",
                     fg=_C["success"])
             except Exception as exc:
                 self._lbl_orb_status.config(text=f"校準失敗：{exc}", fg=_C["danger"])
@@ -760,20 +762,102 @@ class MainWindow:
 
     def _orb_recognize_test(self) -> None:
         if not self._orb_config:
-            from tkinter import messagebox
             messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
             return
-        self._lbl_orb_status.config(text="辨識中…", fg=_C["warning"])
+        self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
         self._root.update_idletasks()
-        # OrbBoard not yet implemented — show placeholder
-        self._lbl_orb_status.config(text="辨識模組開發中", fg=_C["text_muted"])
+        try:
+            from services.orb_board import OrbBoard
+            from services.orb_solver import score_board
+            board_svc = OrbBoard(self._orb_config)
+            board = board_svc.snapshot()
+            self._orb_draw_board(board)
+            current = score_board(board)
+            self._lbl_orb_combo.config(text=f"目前 combo：{current}")
+            self._lbl_orb_status.config(
+                text=f"辨識完成，目前盤面 {current} combo",
+                fg=_C["success"])
+        except Exception as exc:
+            self._lbl_orb_status.config(text=f"辨識失敗：{exc}", fg=_C["danger"])
 
     def _orb_execute(self) -> None:
         if not self._orb_config:
-            from tkinter import messagebox
             messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
             return
-        self._lbl_orb_status.config(text="執行模組開發中", fg=_C["text_muted"])
+        if self._orb_executor and self._orb_executor.is_running:
+            return
+        self._btn_orb_run.config(state=tk.DISABLED)
+        self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
+        self._root.update_idletasks()
+        try:
+            from services.orb_board import OrbBoard
+            from services.orb_solver import OrbSolver, score_board
+            from services.orb_executor import OrbExecutor
+
+            board_svc = OrbBoard(self._orb_config)
+            board = board_svc.snapshot()
+            self._orb_draw_board(board)
+
+            self._lbl_orb_status.config(text="求解中…", fg=_C["warning"])
+            self._root.update_idletasks()
+
+            solver = OrbSolver(self._orb_config)
+            path = solver.solve(board)
+
+            if not path:
+                self._lbl_orb_status.config(text="求解失敗，找不到路線", fg=_C["danger"])
+                self._btn_orb_run.config(state=tk.NORMAL)
+                return
+
+            predicted = score_board(board)
+            self._lbl_orb_combo.config(text=f"預測 combo：{predicted}")
+            self._lbl_orb_status.config(
+                text=f"執行中… 預測 {predicted} combo，{len(path)} 步",
+                fg=_C["success"])
+
+            self._orb_executor = OrbExecutor(self._orb_config)
+
+            def on_done():
+                self._root.after(0, lambda: self._lbl_orb_status.config(
+                    text="轉珠完成", fg=_C["success"]))
+                self._root.after(0, lambda: self._btn_orb_run.config(state=tk.NORMAL))
+
+            def on_error(msg):
+                self._root.after(0, lambda: self._lbl_orb_status.config(
+                    text=f"執行錯誤：{msg}", fg=_C["danger"]))
+                self._root.after(0, lambda: self._btn_orb_run.config(state=tk.NORMAL))
+
+            self._orb_executor.run(path, on_done, on_error)
+
+        except Exception as exc:
+            self._lbl_orb_status.config(text=f"錯誤：{exc}", fg=_C["danger"])
+            self._btn_orb_run.config(state=tk.NORMAL)
+
+    def _orb_draw_board(self, board) -> None:
+        from services.orb_board import ORB_COLOR
+        self._orb_canvas.delete("all")
+        rows = len(board)
+        cols = len(board[0]) if board else 6
+        cw = max(self._orb_canvas.winfo_width(),  200)
+        ch = max(self._orb_canvas.winfo_height(), 150)
+        cell_w = cw / cols
+        cell_h = ch / rows
+        pad = max(3, int(min(cell_w, cell_h) * 0.06))
+        font_size = max(8, int(min(cell_w, cell_h) * 0.28))
+        for r in range(rows):
+            for c in range(cols):
+                orb = board[r][c]
+                color = ORB_COLOR.get(orb, "#334155")
+                x1 = c * cell_w + pad
+                y1 = r * cell_h + pad
+                x2 = (c + 1) * cell_w - pad
+                y2 = (r + 1) * cell_h - pad
+                self._orb_canvas.create_oval(
+                    x1, y1, x2, y2, fill=color, outline="")
+                self._orb_canvas.create_text(
+                    (x1 + x2) / 2, (y1 + y2) / 2,
+                    text=orb, fill="white",
+                    font=("Segoe UI", font_size, "bold"))
 
     def _orb_save_config(self) -> None:
         if not self._orb_config:
@@ -1519,7 +1603,7 @@ class MainWindow:
         self._var_y.set(str(self._var_my.get()))
 
     def _capture_region(self) -> None:
-        def on_done(path: Optional[str]) -> None:
+        def on_done(path, *_):   # ignore coord args — not needed for image_click
             if not path:
                 return
             self._var_img_path.set(path)
