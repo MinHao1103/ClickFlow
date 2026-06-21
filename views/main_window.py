@@ -686,6 +686,30 @@ class MainWindow:
                  fg=_C["text_muted"], font=("Segoe UI", 8, "italic")).pack(
             anchor=tk.W, padx=PX)
 
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=8)
+
+        # Continuous mode
+        self._orb_var_loop = tk.BooleanVar(value=False)
+        loop_row = tk.Frame(parent, bg=_C["bg"])
+        loop_row.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        ttk.Checkbutton(loop_row, text="連續模式", variable=self._orb_var_loop,
+                        style="TCheckbutton").pack(side=tk.LEFT)
+
+        self._orb_var_interval = tk.StringVar(value="6")
+        self._orb_var_interval.trace_add("write",
+            lambda *_: self._auto_norm(self._orb_var_interval))
+        tk.Label(loop_row, text="間隔", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(12, 2))
+        self._numeric_entry(loop_row, self._orb_var_interval, width=4).pack(side=tk.LEFT)
+        tk.Label(loop_row, text="秒", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(2, 0))
+
+        self._btn_orb_stop = ttk.Button(
+            parent, text="■  停止連續", style="Stop.TButton",
+            command=self._orb_stop_loop)
+        self._btn_orb_stop.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        self._btn_orb_stop.pack_forget()   # hidden until loop starts
+
     def _build_orb_preview(self, parent: ttk.Frame) -> None:
         # ── Title ─────────────────────────────────────────────────────────────
         hdr = tk.Frame(parent, bg=_C["bg"])
@@ -724,9 +748,11 @@ class MainWindow:
         self._lbl_orb_status.pack(anchor=tk.W)
 
         # internal state
-        self._orb_config    = None   # OrbConfig instance once calibrated
-        self._orb_board_img = None   # latest PIL screenshot for preview
-        self._orb_executor  = None   # OrbExecutor instance during execution
+        self._orb_config      = None   # OrbConfig instance once calibrated
+        self._orb_board_img   = None   # latest PIL screenshot for preview
+        self._orb_executor    = None   # OrbExecutor instance during execution
+        self._orb_loop_active = False  # continuous mode flag
+        self._orb_loop_after  = None   # root.after ID for next scheduled solve
 
     def _orb_canvas_resize(self, _e: tk.Event) -> None:
         w = self._orb_canvas.winfo_width()
@@ -802,6 +828,11 @@ class MainWindow:
             return
         if self._orb_executor and self._orb_executor.is_running:
             return
+        # Activate continuous loop on first manual call if checkbox is on
+        if self._orb_var_loop.get() and not self._orb_loop_active:
+            self._orb_loop_active = True
+            self._btn_orb_run.pack_forget()
+            self._btn_orb_stop.pack(fill=tk.X, padx=10, pady=(0, 4))
         self._btn_orb_run.config(state=tk.DISABLED)
         self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
         self._root.update_idletasks()
@@ -822,7 +853,7 @@ class MainWindow:
 
             if not path:
                 self._lbl_orb_status.config(text="求解失敗，找不到路線", fg=_C["danger"])
-                self._btn_orb_run.config(state=tk.NORMAL)
+                self._orb_reset_run_btn()
                 return
 
             predicted = score_board(board)
@@ -834,20 +865,47 @@ class MainWindow:
             self._orb_executor = OrbExecutor(self._orb_config)
 
             def on_done():
-                self._root.after(0, lambda: self._lbl_orb_status.config(
-                    text="轉珠完成", fg=_C["success"]))
-                self._root.after(0, lambda: self._btn_orb_run.config(state=tk.NORMAL))
+                if self._orb_loop_active:
+                    try:
+                        interval = max(1, float(self._orb_var_interval.get() or 6))
+                    except ValueError:
+                        interval = 6
+                    ms = int(interval * 1000)
+                    self._root.after(0, lambda: self._lbl_orb_status.config(
+                        text=f"轉珠完成，{interval:.0f} 秒後自動執行下一次",
+                        fg=_C["success"]))
+                    self._orb_loop_after = self._root.after(ms, self._orb_execute)
+                else:
+                    self._root.after(0, lambda: self._lbl_orb_status.config(
+                        text="轉珠完成", fg=_C["success"]))
+                    self._root.after(0, self._orb_reset_run_btn)
 
             def on_error(msg):
                 self._root.after(0, lambda: self._lbl_orb_status.config(
                     text=f"執行錯誤：{msg}", fg=_C["danger"]))
-                self._root.after(0, lambda: self._btn_orb_run.config(state=tk.NORMAL))
+                self._root.after(0, self._orb_reset_run_btn)
 
             self._orb_executor.run(path, on_done, on_error)
 
         except Exception as exc:
             self._lbl_orb_status.config(text=f"錯誤：{exc}", fg=_C["danger"])
-            self._btn_orb_run.config(state=tk.NORMAL)
+            self._orb_reset_run_btn()
+
+    def _orb_stop_loop(self) -> None:
+        self._orb_loop_active = False
+        if self._orb_loop_after:
+            self._root.after_cancel(self._orb_loop_after)
+            self._orb_loop_after = None
+        if self._orb_executor and self._orb_executor.is_running:
+            self._orb_executor.abort()
+        self._orb_reset_run_btn()
+        self._lbl_orb_status.config(text="連續模式已停止", fg=_C["text_muted"])
+
+    def _orb_reset_run_btn(self) -> None:
+        self._orb_loop_active = False
+        self._btn_orb_stop.pack_forget()
+        self._btn_orb_run.pack(fill=tk.X, padx=10, pady=(0, 4))
+        self._btn_orb_run.config(state=tk.NORMAL)
 
     def _orb_draw_board(self, board) -> None:
         from services.orb_board import ORB_COLOR
