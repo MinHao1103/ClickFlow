@@ -658,15 +658,17 @@ class MainWindow:
         self._orb_var_beam     = _row("求解精度", None, 30)
         self._orb_var_steps    = _row("最大步數", None, 40)
 
-        # Preset buttons: 標準 / 高精度
+        # Preset buttons: 標準 / 高精度 — store refs so _orb_set_preset can toggle styles
         preset_row = tk.Frame(parent, bg=_C["bg"])
         preset_row.pack(fill=tk.X, padx=PX, pady=(4, 0))
-        ttk.Button(preset_row, text="標準", style="Ghost.TButton",
-                   command=lambda: self._orb_set_preset(30, 40)).pack(
-            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        ttk.Button(preset_row, text="高精度", style="Accent.TButton",
-                   command=lambda: self._orb_set_preset(50, 50)).pack(
-            side=tk.LEFT, expand=True, fill=tk.X)
+        self._btn_preset_std = ttk.Button(
+            preset_row, text="標準", style="Ghost.TButton",
+            command=lambda: self._orb_set_preset(30, 40))
+        self._btn_preset_std.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self._btn_preset_hi = ttk.Button(
+            preset_row, text="高精度", style="Ghost.TButton",
+            command=lambda: self._orb_set_preset(50, 50))
+        self._btn_preset_hi.pack(side=tk.LEFT, expand=True, fill=tk.X)
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=8)
 
@@ -765,8 +767,12 @@ class MainWindow:
         if self._orb_config:
             self._orb_config.beam_width = beam
             self._orb_config.max_steps  = steps
+        # Highlight the active preset button, ghost the other
+        is_std = (beam == 30 and steps == 40)
+        self._btn_preset_std.config(style="Accent.TButton" if is_std  else "Ghost.TButton")
+        self._btn_preset_hi.config( style="Accent.TButton" if not is_std else "Ghost.TButton")
         self._lbl_orb_status.config(
-            text=f"精度設為：求解精度 {beam}，最大步數 {steps}",
+            text=f"{'標準' if is_std else '高精度'} 模式：精度 {beam}，步數 {steps}",
             fg=_C["text_muted"])
 
     # ── orb callbacks ─────────────────────────────────────────────────────────
