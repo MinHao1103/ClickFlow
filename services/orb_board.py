@@ -19,13 +19,15 @@ EMPTY = "?"
 
 # OpenCV HSV: H=0-179, S=0-255, V=0-255
 # Each entry: (orb_name, [(hue_lo, hue_hi), ...])
+# Ranges chosen to avoid overlap; 心/火 both near red wrap-point,
+# separated by 心 being higher-hue magenta (≥152) vs 火 low-hue red (≤12 or ≥170)
 _ORB_HSV = [
-    (FIRE,  [(0, 12), (168, 179)]),   # red wraps around 179→0
-    (EARTH, [(13, 32)]),              # orange-gold
-    (WOOD,  [(50, 85)]),              # green
-    (WATER, [(95, 130)]),             # blue
-    (DARK,  [(130, 153)]),            # purple
-    (HEART, [(153, 172)]),            # pink/magenta
+    (FIRE,  [(0, 12), (170, 179)]),   # red — wraps around 179→0
+    (EARTH, [(13, 38)]),              # orange-gold
+    (WOOD,  [(45, 92)]),              # green
+    (WATER, [(92, 128)]),             # blue
+    (DARK,  [(128, 152)]),            # purple/violet
+    (HEART, [(152, 170)]),            # pink/magenta
 ]
 
 # Canvas preview colours (tkinter colour strings)
@@ -59,10 +61,11 @@ class OrbBoard:
         for r in range(cfg.rows):
             row = []
             for c in range(cfg.cols):
-                x1 = int(c * cfg.cell_w + cfg.cell_w * 0.2)
-                y1 = int(r * cfg.cell_h + cfg.cell_h * 0.2)
-                x2 = int(c * cfg.cell_w + cfg.cell_w * 0.8)
-                y2 = int(r * cfg.cell_h + cfg.cell_h * 0.8)
+                # 35-65 % crop: avoids the reddish outer glow/border common in orb art
+                x1 = int(c * cfg.cell_w + cfg.cell_w * 0.35)
+                y1 = int(r * cfg.cell_h + cfg.cell_h * 0.35)
+                x2 = int(c * cfg.cell_w + cfg.cell_w * 0.65)
+                y2 = int(r * cfg.cell_h + cfg.cell_h * 0.65)
                 cell = arr[y1:y2, x1:x2]
                 row.append(self._classify(cell))
             board.append(row)
@@ -72,14 +75,31 @@ class OrbBoard:
         return self.recognize(self.capture())
 
     def _classify(self, cell_hsv: np.ndarray) -> str:
-        mask = cell_hsv[:, :, 1] > 50        # ignore low-saturation pixels
+        # Exclude white highlights (S too low) and shadows (V out of range)
+        mask = (
+            (cell_hsv[:, :, 1] > 100) &
+            (cell_hsv[:, :, 2] > 45)  &
+            (cell_hsv[:, :, 2] < 235)
+        )
         if not np.any(mask):
             return EMPTY
-        hues = cell_hsv[:, :, 0][mask].astype(float)
-        avg = float(np.median(hues))
-        for name, ranges in _ORB_HSV:
+
+        hues = cell_hsv[:, :, 0][mask]
+        sats = cell_hsv[:, :, 1][mask].astype(float)
+
+        # Score each orb type by total saturation of pixels that fall within its hue range.
+        # More saturated pixels = stronger vote; whichever orb captures the most wins.
+        best_name  = EMPTY
+        best_score = 0.0
+        for orb, ranges in _ORB_HSV:
+            score = 0.0
             for lo, hi in ranges:
-                if lo <= avg <= hi:
-                    return name
-        logger.debug("Unclassified hue: %.1f", avg)
-        return EMPTY
+                in_range = (hues >= lo) & (hues <= hi)
+                score += float(sats[in_range].sum())
+            if score > best_score:
+                best_score = score
+                best_name  = orb
+
+        if best_name == EMPTY:
+            logger.debug("Unclassified cell — no hue range matched (S-sum=0)")
+        return best_name
