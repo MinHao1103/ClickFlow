@@ -686,12 +686,6 @@ class MainWindow:
                  fg=_C["text_muted"], font=("Segoe UI", 8, "italic")).pack(
             anchor=tk.W, padx=PX)
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
-
-        ttk.Button(parent, text="💾  儲存設定", style="Ghost.TButton",
-                   command=self._orb_save_config).pack(
-            fill=tk.X, padx=PX, pady=(0, 8))
-
     def _build_orb_preview(self, parent: ttk.Frame) -> None:
         # ── Title ─────────────────────────────────────────────────────────────
         hdr = tk.Frame(parent, bg=_C["bg"])
@@ -880,17 +874,6 @@ class MainWindow:
                     (x1 + x2) / 2, (y1 + y2) / 2,
                     text=orb, fill="white",
                     font=("Segoe UI", font_size, "bold"))
-
-    def _orb_save_config(self) -> None:
-        if not self._orb_config:
-            from tkinter import messagebox
-            messagebox.showwarning("轉珠", "請先校準盤面才能儲存")
-            return
-        try:
-            self._db.save_orb_config(self._orb_config)
-            self._lbl_orb_status.config(text="設定已儲存", fg=_C["success"])
-        except AttributeError:
-            self._lbl_orb_status.config(text="儲存功能開發中", fg=_C["text_muted"])
 
     def _orb_show_preview_image(self, path: str) -> None:
         try:
