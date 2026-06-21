@@ -70,7 +70,7 @@ class OrbSolver:
     def __init__(self, config: OrbConfig) -> None:
         self._cfg = config
 
-    def solve(self, board: Board) -> list[tuple[int, int]]:
+    def solve(self, board: Board) -> tuple[list[tuple[int, int]], int]:
         rows = len(board)
         cols = len(board[0]) if board else 6
         beam_width = max(1, self._cfg.beam_width)
@@ -120,5 +120,6 @@ class OrbSolver:
                         best_score = s
                         best_path = top_path
 
-        logger.info("Solver: %d steps, predicted %d combo(s)", len(best_path), best_score)
-        return best_path
+        predicted = max(best_score, 0)
+        logger.info("Solver: %d steps, predicted %d combo(s)", len(best_path), predicted)
+        return best_path, predicted

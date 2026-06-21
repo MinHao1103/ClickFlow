@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
+import threading
 from typing import List, Optional
 
 from models.click_step import ClickStep
@@ -838,85 +839,92 @@ class MainWindow:
         if self._orb_var_loop.get() and not self._orb_loop_active:
             self._orb_loop_active = True
             self._btn_orb_run.pack_forget()
-            self._btn_orb_stop.pack(fill=tk.X, padx=10, pady=(0, 4))
+            self._btn_orb_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
         self._btn_orb_run.config(state=tk.DISABLED)
         self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
-        self._root.update_idletasks()
-        try:
-            from services.orb_board import OrbBoard
-            from services.orb_solver import OrbSolver, score_board
-            from services.orb_executor import OrbExecutor
 
-            board_svc = OrbBoard(self._orb_config)
-            board = board_svc.snapshot()
-            self._orb_draw_board(board)
+        def _worker():
+            try:
+                from services.orb_board import OrbBoard
+                from services.orb_solver import OrbSolver
+                from services.orb_executor import OrbExecutor
 
-            self._lbl_orb_status.config(text="求解中…", fg=_C["warning"])
-            self._root.update_idletasks()
+                board = OrbBoard(self._orb_config).snapshot()
+                self._root.after(0, lambda: self._orb_draw_board(board))
+                self._root.after(0, lambda: self._lbl_orb_status.config(
+                    text="求解中…", fg=_C["warning"]))
 
-            solver = OrbSolver(self._orb_config)
-            path = solver.solve(board)
+                path, predicted = OrbSolver(self._orb_config).solve(board)
 
-            if not path:
-                self._lbl_orb_status.config(text="求解失敗，找不到路線", fg=_C["danger"])
-                self._orb_reset_run_btn()
-                return
-
-            predicted = score_board(board)
-            self._lbl_orb_combo.config(text=f"預測 combo：{predicted}")
-            self._lbl_orb_status.config(
-                text=f"執行中… 預測 {predicted} combo，{len(path)} 步",
-                fg=_C["success"])
-
-            self._orb_executor = OrbExecutor(self._orb_config)
-
-            def on_done():
-                if self._orb_loop_active:
-                    try:
-                        interval = max(1, float(self._orb_var_interval.get() or 6))
-                    except ValueError:
-                        interval = 6
-                    ms = int(interval * 1000)
+                if not path:
                     self._root.after(0, lambda: self._lbl_orb_status.config(
-                        text=f"轉珠完成，{interval:.0f} 秒後偵測盤面…",
-                        fg=_C["success"]))
-                    self._orb_loop_after = self._root.after(ms, self._orb_loop_check)
-                else:
+                        text="求解失敗，找不到路線", fg=_C["danger"]))
+                    self._root.after(0, self._orb_reset_run_btn)
+                    return
+
+                self._root.after(0, lambda: self._lbl_orb_combo.config(
+                    text=f"預測 combo：{predicted}"))
+                self._root.after(0, lambda: self._lbl_orb_status.config(
+                    text=f"執行中… 預測 {predicted} combo，{len(path)} 步",
+                    fg=_C["success"]))
+
+                executor = OrbExecutor(self._orb_config)
+                self._orb_executor = executor
+
+                def on_done():
+                    if self._orb_loop_active:
+                        try:
+                            interval = max(1, float(self._orb_var_interval.get() or 6))
+                        except ValueError:
+                            interval = 6
+                        ms = int(interval * 1000)
+                        self._root.after(0, lambda: self._lbl_orb_status.config(
+                            text=f"轉珠完成，{interval:.0f} 秒後偵測盤面…",
+                            fg=_C["success"]))
+                        self._orb_loop_after = self._root.after(ms, self._orb_loop_check)
+                    else:
+                        self._root.after(0, lambda: self._lbl_orb_status.config(
+                            text="轉珠完成", fg=_C["success"]))
+                        self._root.after(0, self._orb_reset_run_btn)
+
+                def on_error(msg):
                     self._root.after(0, lambda: self._lbl_orb_status.config(
-                        text="轉珠完成", fg=_C["success"]))
+                        text=f"執行錯誤：{msg}", fg=_C["danger"]))
                     self._root.after(0, self._orb_reset_run_btn)
 
-            def on_error(msg):
+                executor.run(path, on_done, on_error)
+
+            except Exception as exc:
                 self._root.after(0, lambda: self._lbl_orb_status.config(
-                    text=f"執行錯誤：{msg}", fg=_C["danger"]))
+                    text=f"錯誤：{exc}", fg=_C["danger"]))
                 self._root.after(0, self._orb_reset_run_btn)
 
-            self._orb_executor.run(path, on_done, on_error)
-
-        except Exception as exc:
-            self._lbl_orb_status.config(text=f"錯誤：{exc}", fg=_C["danger"])
-            self._orb_reset_run_btn()
+        threading.Thread(target=_worker, daemon=True, name="OrbWorker").start()
 
     def _orb_loop_check(self) -> None:
-        """Snapshot the board region before next iteration; stop if battle has ended."""
+        """Snapshot the board region in a worker thread; stop loop if battle has ended."""
         if not self._orb_loop_active or not self._orb_config:
             return
-        try:
-            from services.orb_board import OrbBoard, EMPTY
-            board = OrbBoard(self._orb_config).snapshot()
-            flat = [cell for row in board for cell in row]
-            total = len(flat)
-            empty_count = flat.count(EMPTY)
-            orb_types = {c for c in flat if c != EMPTY}
-            # Covered board: >50% unrecognised OR all cells same type (dialog artifact)
-            if empty_count > total * 0.5 or len(orb_types) <= 1:
-                self._lbl_orb_status.config(
-                    text="偵測到關卡結束，自動停止連續模式", fg=_C["warning"])
-                self._orb_stop_loop()
-                return
-        except Exception:
-            pass  # recognition error — just continue
-        self._orb_execute()
+
+        def _check():
+            try:
+                from services.orb_board import OrbBoard, EMPTY
+                board = OrbBoard(self._orb_config).snapshot()
+                flat  = [cell for row in board for cell in row]
+                total = len(flat)
+                empty_count = flat.count(EMPTY)
+                orb_types   = {c for c in flat if c != EMPTY}
+                # Covered board: >50% unrecognised OR all cells same type (dialog artifact)
+                if empty_count > total * 0.5 or len(orb_types) <= 1:
+                    self._root.after(0, lambda: self._lbl_orb_status.config(
+                        text="偵測到關卡結束，自動停止連續模式", fg=_C["warning"]))
+                    self._root.after(0, self._orb_stop_loop)
+                    return
+            except Exception:
+                pass  # recognition error — just continue
+            self._root.after(0, self._orb_execute)
+
+        threading.Thread(target=_check, daemon=True, name="OrbLoopCheck").start()
 
     def _orb_stop_loop(self) -> None:
         self._orb_loop_active = False
@@ -931,7 +939,7 @@ class MainWindow:
     def _orb_reset_run_btn(self) -> None:
         self._orb_loop_active = False
         self._btn_orb_stop.pack_forget()
-        self._btn_orb_run.pack(fill=tk.X, padx=10, pady=(0, 4))
+        self._btn_orb_run.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 4))
         self._btn_orb_run.config(state=tk.NORMAL)
 
     def _orb_draw_board(self, board) -> None:
