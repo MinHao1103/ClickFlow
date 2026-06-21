@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-A **Python Desktop Automation Script Engine** — a commercial-grade GUI tool for recording and replaying mouse/keyboard sequences. Windows 10/11 only (uses `ctypes.windll` in `keyboard_monitor.py`).
+A **Python Desktop Automation Script Engine** — a commercial-grade GUI tool for recording and replaying mouse/keyboard sequences, with a second mode for game orb-solving (摩靈 / Tower of Saviors style). Windows 10/11 only (uses `ctypes.windll` in `keyboard_monitor.py`).
+
+The app has **two independent functional modes** selectable via tabs in the main window:
+- **Tab 1 — 自動化**: record/replay step sequences (the original ClickFlow feature set)
+- **Tab 2 — 🔮 轉珠**: real-time screenshot → colour recognition → Beam Search path → mouse drag
 
 ## Common Commands
 
@@ -24,18 +28,26 @@ main.py               logging init → DatabaseManager → MainWindow → mainlo
 models/               pure dataclasses, no logic
   click_step.py       ClickStep — in-memory step; has display_label() for listbox
   profile.py          Profile — DB record mirror
+  orb_config.py       OrbConfig — orb-solver calibration settings (board origin, cell size, etc.)
 services/             all business logic, never import from views/
   database_manager.py SQLite CRUD; uses contextmanager for connections
   click_executor.py   worker thread; ExecutionState dataclass lives here too
   keyboard_monitor.py polls GetAsyncKeyState at 50ms (edge-triggered)
   mouse_tracker.py    polls pyautogui.position() at 100ms
   recorder.py         pynput global listeners; Recorder class; F9 stops recording
+  orb_board.py        screenshot → Board (2D OrbType array); colour recognition via HSV
+  orb_solver.py       Beam Search solver; returns List[(row,col)] path maximising combos
+  orb_executor.py     converts path to mouseDown/moveTo/mouseUp drag sequence
 views/
   main_window.py      entire UI; _C palette dict + ttk.Style("clam")
-                      module-level: _Mini, _MiniRecorder, _Tip helper classes
+                      module-level: _Mini, _MiniRecorder, _Tip, _RegionSelector helper classes
+                      two-tab layout: Tab1=自動化, Tab2=🔮轉珠
+  orb_calibrate.py    Toplevel for board area selection, grid preview, colour-recognition test
 ```
 
 **Rule**: business logic never enters `views/`. All thread-to-GUI communication must go through `root.after(0, fn)`.
+
+**Orb-solver isolation rule**: `services/orb_*.py` are completely independent of the automation pipeline. They share only `pyautogui`, `PIL`, and `models/orb_config.py`. They never import `ClickStep`, `ClickExecutor`, or anything from `views/`.
 
 ## Threading Model
 
@@ -45,12 +57,14 @@ views/
 | ClickExecutor | `ClickExecutor` | `threading.Event` (`_stop_event`) |
 | MouseTracker | `MouseTracker` | `self._running = False` |
 | KeyboardMonitor | `KeyboardMonitor` | `self._running = False` |
+| OrbExecutor | `OrbExecutor` | `threading.Event` (`_stop_event`); always calls `mouseUp()` on abort |
 
 `ClickExecutor._interruptible_sleep` loops in 50ms ticks so the stop event is responsive mid-delay. All three background threads are daemon threads.
 
 `KeyboardMonitor` fires callbacks on **rising edge only** (prev=False → now=True), preventing repeated triggers while key is held:
 - Space → `on_stop()`
 - S → `on_capture()`
+- F8 → `on_orb_solve()` (triggers Tab 2 orb-solver pipeline)
 
 ## Key Design Patterns
 
@@ -109,8 +123,20 @@ actions  (id, profile_id FK, order_idx, action_type, x, y,
           click_count, delay_seconds, keyboard_text, extra_json, created_at)
 ```
 
-Action types: `click`, `double_click`, `right_click`, `move`, `delay`, `keyboard_input`, `hotkey`  
-Reserved for future extension via `extra_json`: `image_search`, `OCR`, conditional logic, random delay.
+Action types: `click`, `double_click`, `right_click`, `move`, `delay`, `keyboard_input`, `hotkey`, `image_click`, `drag`
+
+`drag` uses `extra_json`: `{"to_x": int, "to_y": int, "duration": float}` — start coord from `x`/`y` fields.
+
+`image_click` uses `extra_json`: `{"path": str, "confidence": float, "timeout": float}`.
+
+Reserved for future extension via `extra_json`: `OCR`, conditional logic, random delay.
+
+```sql
+-- orb solver calibration (Tab 2)
+orb_configs (id, name UNIQUE, board_x, board_y, cell_w, cell_h,
+             rows, cols, drag_speed_ms, beam_width, max_steps,
+             created_at, updated_at)
+```
 
 ## Recorder Behaviour
 
@@ -124,6 +150,33 @@ Key details:
 - **Hotkey emission**: modifier state is tracked in a `set`; when a non-modifier key is pressed with modifiers held, a `hotkey` step is emitted with keys in `ctrl → alt → shift → key` order.
 - **Delay capping**: inter-event delays are capped at `max_delay` (default 5 s) and floored at 50 ms (below that, delay is recorded as 0).
 - **F9** stops recording from within the pynput keyboard thread by spawning a daemon thread that calls `Recorder.stop()`.
+
+## Orb Solver Pipeline (Tab 2)
+
+Full spec: `docs/orb_solver_spec.md`. Summary of the data flow:
+
+```
+F8 / UI button
+    │
+    ▼
+OrbBoard.snapshot()          # pyautogui.screenshot → crop → HSV per cell → Board
+    │  Board = list[list[OrbType]]   OrbType: FIRE/WATER/WOOD/LIGHT/DARK/HEART/EMPTY
+    ▼
+OrbSolver.solve(board)       # Beam Search (width=10, max_steps=30)
+    │  returns List[Tuple[int,int]]  — (row,col) sequence
+    ▼
+OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon thread)
+```
+
+**OrbConfig** (`models/orb_config.py`) stores calibration: `board_x/y`, `cell_w/h`, `rows`, `cols`, `drag_speed_ms`, `beam_width`, `max_steps`. Persisted via `DatabaseManager` to the `orb_configs` table.
+
+**Colour recognition**: each cell's centre 60% crop → average HSV → match against `ORB_HSV` hue ranges. Cells with low saturation → `EMPTY`.
+
+**Combo scoring**: simulate gravity-drop loop after placing orb; count total match rounds. 6+ same-colour in one round counts as 2 combos.
+
+**Drag execution**: `drag_speed_ms` (default 25 ms) per cell. Always calls `mouseUp()` even on abort via `_stop_event`.
+
+**Calibration UI** (`views/orb_calibrate.py`): reuses `_RegionSelector` to let user drag-select the board area, then overlays a colour-coded grid preview after recognition test.
 
 ## UI Style System
 

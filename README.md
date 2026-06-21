@@ -113,6 +113,7 @@ python main.py
 | `S` | 任何時候 | 擷取目前游標座標，填入步驟編輯器 |
 | `Space` | 執行中 | 立即停止執行 |
 | `F9` | 錄製中 | 停止錄製 |
+| `F8` | 轉珠模式中 | 觸發截圖→辨識→求解→拖曳完整流程 |
 
 ---
 
@@ -128,6 +129,7 @@ python main.py
 | `keyboard_input` | 輸入文字 |
 | `hotkey` | 觸發快捷鍵（如 `ctrl+c`、`alt+F4`） |
 | `image_click` | 在螢幕上找到參考圖片後點擊 |
+| `drag` | 從起點拖曳到終點（mouseDown → moveTo → mouseUp） |
 
 ---
 
@@ -150,15 +152,23 @@ ClickFlow/
 ├── main.py                  # 入口：logging → DB → GUI
 ├── models/
 │   ├── click_step.py        # 步驟資料類別
-│   └── profile.py           # 設定檔資料類別
+│   ├── profile.py           # 設定檔資料類別
+│   └── orb_config.py        # 轉珠盤面校準設定
 ├── services/
 │   ├── database_manager.py  # SQLite CRUD
-│   ├── click_executor.py    # 執行執行緒（含 image_click 影像搜尋）
+│   ├── click_executor.py    # 執行執行緒（click/drag/image_click 等）
 │   ├── recorder.py          # pynput 全域錄製服務
-│   ├── keyboard_monitor.py  # 全域熱鍵監聽
-│   └── mouse_tracker.py     # 即時座標追蹤
+│   ├── keyboard_monitor.py  # 全域熱鍵（Space/S/F8/F9）
+│   ├── mouse_tracker.py     # 即時座標追蹤
+│   ├── orb_board.py         # 截圖 → 盤面辨識（HSV 色相比對）
+│   ├── orb_solver.py        # Beam Search 轉珠路線求解
+│   └── orb_executor.py      # 路線轉換為滑鼠拖曳執行緒
 ├── views/
-│   └── main_window.py       # 完整 GUI（含 _RegionSelector 截圖覆蓋層）
+│   ├── main_window.py       # 主視窗（Tab1 自動化 / Tab2 轉珠）
+│   └── orb_calibrate.py     # 轉珠盤面校準視窗
+├── docs/
+│   ├── orb_solver_spec.md   # 轉珠功能完整開發規範
+│   └── dev_log.md           # 開發決策與踩坑記錄
 └── images/                  # 影像辨識參考圖片（自動建立）
 ```
 
