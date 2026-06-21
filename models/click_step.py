@@ -27,4 +27,9 @@ class ClickStep:
             conf = p.get("confidence", 0.85)
             timeout = p.get("timeout", 10)
             return f"[image_click] {name}  相似度{conf}  超時{timeout}s  間隔{d}秒"
+        if self.action_type == "drag":
+            p = json.loads(self.extra_json or "{}")
+            tx, ty = p.get("to_x", "?"), p.get("to_y", "?")
+            dur = p.get("duration", 0.3)
+            return f"[drag] ({self.x},{self.y}) → ({tx},{ty})  耗時{dur}s  間隔{d}秒"
         return f"[{self.action_type}] X={self.x} Y={self.y} ×{self.count}次  間隔{d}秒"

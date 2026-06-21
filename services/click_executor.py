@@ -134,6 +134,23 @@ class ClickExecutor:
                 pyautogui.hotkey(*keys)
             self._interruptible_sleep(step.delay)
 
+        elif action == "drag":
+            params   = json.loads(step.extra_json or "{}")
+            to_x     = int(params.get("to_x", step.x))
+            to_y     = int(params.get("to_y", step.y))
+            duration = float(params.get("duration", 0.3))
+            for i in range(step.count):
+                if self._stop_event.is_set():
+                    break
+                self.state.current_click = i + 1
+                self._on_status_update(self.state)
+                pyautogui.mouseDown(step.x, step.y)
+                import time as _t; _t.sleep(0.05)
+                pyautogui.moveTo(to_x, to_y, duration=duration)
+                _t.sleep(0.03)
+                pyautogui.mouseUp()
+                self._interruptible_sleep(step.delay)
+
         elif action == "image_click":
             self.state.total_clicks = 1
             self.state.current_click = 1

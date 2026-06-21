@@ -48,16 +48,18 @@ _ACTION_FG = {
     "keyboard_input": _C["success"],
     "hotkey":         _C["success"],
     "image_click":    _C["teal"],
+    "drag":           _C["warning"],
 }
 
 _ACTION_TYPES = [
     "click", "double_click", "right_click",
     "move", "delay", "keyboard_input", "hotkey",
-    "image_click",
+    "image_click", "drag",
 ]
 _COORD_ACTIONS = {"click", "double_click", "right_click", "move"}
 _KB_ACTIONS    = {"keyboard_input", "hotkey"}
 _IMG_ACTIONS   = {"image_click"}
+_DRAG_ACTIONS  = {"drag"}
 
 
 # ── Mini execution monitor ────────────────────────────────────────────────────
@@ -371,6 +373,7 @@ class MainWindow:
         self._keyboard_monitor = KeyboardMonitor(
             on_stop=self._stop_execution,
             on_capture=self._capture_position,
+            on_orb_solve=self._orb_execute,
         )
 
         self._apply_styles()
@@ -429,6 +432,21 @@ class MainWindow:
             arrowcolor=_C["accent"],
         )
         s.configure("TSeparator", background=_C["border"])
+        s.configure("TNotebook",
+            background=_C["bg"],
+            bordercolor=_C["border"],
+            tabmargins=[2, 4, 0, 0],
+        )
+        s.configure("TNotebook.Tab",
+            background=_C["card"],
+            foreground=_C["text_muted"],
+            padding=[14, 7],
+            font=("Segoe UI", 10),
+        )
+        s.map("TNotebook.Tab",
+            background=[("selected", _C["bg"]), ("active", _C["bg_dark"])],
+            foreground=[("selected", _C["accent"]), ("active", _C["text"])],
+        )
         s.configure("TScrollbar",
             background=_C["bg_dark"],
             troughcolor=_C["bg"],
@@ -547,12 +565,24 @@ class MainWindow:
 
     def _build_ui(self) -> None:
         self._build_tracker_bar()
-
-        # Status bar at very bottom (pack before mid so it claims its space first)
         self._build_status_bar()
 
-        mid = ttk.Frame(self._root)
-        mid.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
+        nb = ttk.Notebook(self._root)
+        nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
+
+        # ── Tab 1: 自動化 ──────────────────────────────────────────────────────
+        tab1 = ttk.Frame(nb)
+        nb.add(tab1, text="  🤖  自動化  ")
+        self._build_automation_tab(tab1)
+
+        # ── Tab 2: 轉珠 ────────────────────────────────────────────────────────
+        tab2 = ttk.Frame(nb)
+        nb.add(tab2, text="  🔮  轉珠  ")
+        self._build_orb_tab(tab2)
+
+    def _build_automation_tab(self, parent: ttk.Frame) -> None:
+        mid = ttk.Frame(parent)
+        mid.pack(fill=tk.BOTH, expand=True, padx=0, pady=(4, 4))
 
         # LEFT — step editor, fixed width
         left = ttk.LabelFrame(mid, text="  步驟編輯器", width=285)
@@ -560,7 +590,7 @@ class MainWindow:
         left.pack_propagate(False)
         self._build_step_editor(left)
 
-        # RIGHT — control panel (recording + execution + profile), fixed width
+        # RIGHT — control panel, fixed width
         right = ttk.LabelFrame(mid, text="  控制台", width=275)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
         right.pack_propagate(False)
@@ -570,6 +600,196 @@ class MainWindow:
         center = ttk.LabelFrame(mid, text="  步驟序列")
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
         self._build_step_sequence(center)
+
+    def _build_orb_tab(self, parent: ttk.Frame) -> None:
+        mid = ttk.Frame(parent)
+        mid.pack(fill=tk.BOTH, expand=True, padx=0, pady=4)
+
+        # ── LEFT: settings panel ──────────────────────────────────────────────
+        left = ttk.LabelFrame(mid, text="  盤面設定", width=230)
+        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
+        left.pack_propagate(False)
+        self._build_orb_settings(left)
+
+        # ── RIGHT: preview + execute ──────────────────────────────────────────
+        right = ttk.Frame(mid)
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
+        self._build_orb_preview(right)
+
+    def _build_orb_settings(self, parent: ttk.LabelFrame) -> None:
+        PX = 10
+
+        # Calibrate button
+        ttk.Button(parent, text="📷  框選盤面", style="Accent.TButton",
+                   command=self._orb_calibrate).pack(
+            fill=tk.X, padx=PX, pady=(12, 6))
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
+
+        def _row(label, var, default):
+            r = tk.Frame(parent, bg=_C["bg"])
+            r.pack(fill=tk.X, padx=PX, pady=2)
+            tk.Label(r, text=label, bg=_C["bg"], fg=_C["text_muted"],
+                     font=("Segoe UI", 9), width=8, anchor=tk.W).pack(side=tk.LEFT)
+            v = tk.StringVar(value=str(default))
+            e = self._numeric_entry(r, v, width=6)
+            e.pack(side=tk.LEFT, padx=(4, 0))
+            return v
+
+        self._orb_var_rows     = _row("列數",     None, 5)
+        self._orb_var_cols     = _row("欄數",     None, 6)
+        self._orb_var_speed    = _row("拖曳速度", None, 25)
+        tk.Label(parent, text="ms / 格", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8)).pack(anchor=tk.W, padx=PX+14)
+        self._orb_var_beam     = _row("求解精度", None, 10)
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=8)
+
+        ttk.Button(parent, text="🔍  辨識測試", style="Ghost.TButton",
+                   command=self._orb_recognize_test).pack(
+            fill=tk.X, padx=PX, pady=(0, 4))
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
+
+        # Execute
+        self._btn_orb_run = ttk.Button(
+            parent, text="▶  執行轉珠", style="Start.TButton",
+            command=self._orb_execute)
+        self._btn_orb_run.pack(fill=tk.X, padx=PX, pady=(0, 4))
+
+        tk.Label(parent, text="快捷鍵：F8", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8, "italic")).pack(
+            anchor=tk.W, padx=PX)
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
+
+        ttk.Button(parent, text="💾  儲存設定", style="Ghost.TButton",
+                   command=self._orb_save_config).pack(
+            fill=tk.X, padx=PX, pady=(0, 8))
+
+    def _build_orb_preview(self, parent: ttk.Frame) -> None:
+        # ── Title ─────────────────────────────────────────────────────────────
+        hdr = tk.Frame(parent, bg=_C["bg"])
+        hdr.pack(fill=tk.X, pady=(4, 0))
+        tk.Label(hdr, text="盤面預覽", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        self._lbl_orb_combo = tk.Label(
+            hdr, text="", bg=_C["bg"],
+            fg=_C["success"], font=("Segoe UI", 9, "bold"))
+        self._lbl_orb_combo.pack(side=tk.RIGHT)
+
+        # ── Board canvas ──────────────────────────────────────────────────────
+        canvas_wrap = tk.Frame(parent,
+                               bg=_C["card"],
+                               highlightthickness=1,
+                               highlightbackground=_C["border"])
+        canvas_wrap.pack(fill=tk.BOTH, expand=True, pady=(6, 8))
+
+        self._orb_canvas = tk.Canvas(canvas_wrap,
+                                     bg=_C["card"],
+                                     highlightthickness=0)
+        self._orb_canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        # placeholder text
+        self._orb_canvas_hint = self._orb_canvas.create_text(
+            0, 0, text="尚未校準\n請先按「📷 框選盤面」",
+            fill=_C["text_muted"], font=("Segoe UI", 11),
+            justify=tk.CENTER, anchor=tk.CENTER,
+        )
+        self._orb_canvas.bind("<Configure>", self._orb_canvas_resize)
+
+        # ── Status label ──────────────────────────────────────────────────────
+        self._lbl_orb_status = tk.Label(
+            parent, text="就緒", bg=_C["bg"],
+            fg=_C["text_muted"], font=("Segoe UI", 9))
+        self._lbl_orb_status.pack(anchor=tk.W)
+
+        # internal state
+        self._orb_config    = None   # OrbConfig instance once calibrated
+        self._orb_board_img = None   # latest PIL screenshot for preview
+
+    def _orb_canvas_resize(self, _e: tk.Event) -> None:
+        w = self._orb_canvas.winfo_width()
+        h = self._orb_canvas.winfo_height()
+        self._orb_canvas.coords(self._orb_canvas_hint, w // 2, h // 2)
+
+    # ── orb callbacks (stubs — wired up as modules are implemented) ───────────
+
+    def _orb_calibrate(self) -> None:
+        from models.orb_config import OrbConfig
+        def on_done(path):
+            if not path:
+                return
+            # Derive cell size from the cropped image and grid settings
+            try:
+                from PIL import Image
+                img = Image.open(path)
+                rows = int(self._orb_var_rows.get() or 5)
+                cols = int(self._orb_var_cols.get() or 6)
+                cell_w = img.width  // cols
+                cell_h = img.height // rows
+                # Board origin: get from region selector via saved path
+                # For now store config without origin (user must re-calibrate coords)
+                self._orb_config = OrbConfig(
+                    name="default",
+                    board_x=0, board_y=0,
+                    cell_w=cell_w, cell_h=cell_h,
+                    rows=rows, cols=cols,
+                    drag_speed_ms=int(self._orb_var_speed.get() or 25),
+                    beam_width=int(self._orb_var_beam.get() or 10),
+                )
+                self._orb_board_img = path
+                self._orb_show_preview_image(path)
+                self._lbl_orb_status.config(
+                    text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px",
+                    fg=_C["success"])
+            except Exception as exc:
+                self._lbl_orb_status.config(text=f"校準失敗：{exc}", fg=_C["danger"])
+
+        _RegionSelector(self._root, save_dir="images/orb", on_done=on_done)
+
+    def _orb_recognize_test(self) -> None:
+        if not self._orb_config:
+            from tkinter import messagebox
+            messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
+            return
+        self._lbl_orb_status.config(text="辨識中…", fg=_C["warning"])
+        self._root.update_idletasks()
+        # OrbBoard not yet implemented — show placeholder
+        self._lbl_orb_status.config(text="辨識模組開發中", fg=_C["text_muted"])
+
+    def _orb_execute(self) -> None:
+        if not self._orb_config:
+            from tkinter import messagebox
+            messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
+            return
+        self._lbl_orb_status.config(text="執行模組開發中", fg=_C["text_muted"])
+
+    def _orb_save_config(self) -> None:
+        if not self._orb_config:
+            from tkinter import messagebox
+            messagebox.showwarning("轉珠", "請先校準盤面才能儲存")
+            return
+        try:
+            self._db.save_orb_config(self._orb_config)
+            self._lbl_orb_status.config(text="設定已儲存", fg=_C["success"])
+        except AttributeError:
+            self._lbl_orb_status.config(text="儲存功能開發中", fg=_C["text_muted"])
+
+    def _orb_show_preview_image(self, path: str) -> None:
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(path)
+            cw = max(self._orb_canvas.winfo_width(),  200)
+            ch = max(self._orb_canvas.winfo_height(), 150)
+            img.thumbnail((cw, ch), Image.LANCZOS)
+            self._orb_preview_tk = ImageTk.PhotoImage(img)
+            self._orb_canvas.delete("all")
+            self._orb_canvas.create_image(
+                cw // 2, ch // 2,
+                anchor=tk.CENTER, image=self._orb_preview_tk)
+        except Exception:
+            pass
 
     # ── tracker bar ───────────────────────────────────────────────────────────
 
@@ -694,6 +914,35 @@ class MainWindow:
 
         self._mk_divider(parent)
 
+        # ── Drag params (hidden until drag is selected) ──
+        self._frm_drag = tk.Frame(parent, bg=_C["bg"])
+
+        tk.Label(self._frm_drag, text="終點座標", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(
+            anchor=tk.W, padx=10, pady=(8, 0))
+        drag_row = tk.Frame(self._frm_drag, bg=_C["bg"])
+        drag_row.pack(fill=tk.X, padx=10, pady=(2, 4))
+        tk.Label(drag_row, text="X", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._var_drag_x = tk.StringVar()
+        self._var_drag_x.trace_add("write", lambda *_: self._auto_norm(self._var_drag_x))
+        self._numeric_entry(drag_row, self._var_drag_x, width=7).pack(side=tk.LEFT, padx=(3, 14))
+        tk.Label(drag_row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._var_drag_y = tk.StringVar()
+        self._var_drag_y.trace_add("write", lambda *_: self._auto_norm(self._var_drag_y))
+        self._numeric_entry(drag_row, self._var_drag_y, width=7).pack(side=tk.LEFT, padx=(3, 0))
+
+        dur_row = tk.Frame(self._frm_drag, bg=_C["bg"])
+        dur_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tk.Label(dur_row, text="耗時", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._var_drag_dur = tk.StringVar(value="0.3")
+        self._var_drag_dur.trace_add("write", lambda *_: self._auto_norm(self._var_drag_dur))
+        self._numeric_entry(dur_row, self._var_drag_dur, width=6).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Label(dur_row, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(4, 0))
+
         # ── Image click params (hidden until image_click is selected) ──
         self._frm_img = tk.Frame(parent, bg=_C["bg"])
         # Not packed yet; _apply_action_state controls visibility
@@ -779,6 +1028,10 @@ class MainWindow:
         else:
             hint = ""
         self._lbl_kb_hint.config(text=hint)
+        if action in _DRAG_ACTIONS:
+            self._frm_drag.pack(fill=tk.X, before=self._btn_area)
+        else:
+            self._frm_drag.pack_forget()
         if action in _IMG_ACTIONS:
             self._frm_img.pack(fill=tk.X, before=self._btn_area)
         else:
@@ -859,6 +1112,28 @@ class MainWindow:
             raise ValueError("Delay 必須為 ≥ 0 的數值")
         kb = self._var_kb.get().strip() or None
 
+        if action in _DRAG_ACTIONS:
+            import json as _json
+            try:
+                tx = int(self._norm(self._var_drag_x.get()))
+                ty = int(self._norm(self._var_drag_y.get()))
+            except ValueError:
+                raise ValueError("終點 X / Y 必須為整數")
+            try:
+                dur = float(self._norm(self._var_drag_dur.get()) or "0.3")
+                if dur <= 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("耗時必須為大於 0 的數字")
+            return ClickStep(
+                x=x, y=y, count=count, delay=delay,
+                action_type="drag",
+                extra_json=_json.dumps(
+                    {"to_x": tx, "to_y": ty, "duration": dur},
+                    ensure_ascii=False,
+                ),
+            )
+
         if action in _IMG_ACTIONS:
             import json as _json
             path = self._var_img_path.get().strip()
@@ -897,6 +1172,9 @@ class MainWindow:
         self._var_count.set("1")
         self._var_delay.set("0")
         self._var_kb.set("")
+        self._var_drag_x.set("")
+        self._var_drag_y.set("")
+        self._var_drag_dur.set("0.3")
         self._var_img_path.set("")
         self._var_conf.set("0.85")
         self._var_timeout.set("10")
@@ -1010,6 +1288,12 @@ class MainWindow:
         self._var_count.set(str(step.count))
         self._var_delay.set(str(step.delay))
         self._var_kb.set(step.keyboard_text or "")
+        if step.action_type in _DRAG_ACTIONS:
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            self._var_drag_x.set(str(p.get("to_x", "")))
+            self._var_drag_y.set(str(p.get("to_y", "")))
+            self._var_drag_dur.set(str(p.get("duration", 0.3)))
         if step.action_type in _IMG_ACTIONS:
             import json as _json
             p = _json.loads(step.extra_json or "{}")
