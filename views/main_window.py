@@ -638,16 +638,16 @@ class MainWindow:
     def _build_orb_settings(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
+        # ── Window binding (optional) — select BEFORE calibrating ────────────
+        self._build_window_picker(parent, self._tab2_win, PX)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
+
         # Calibrate button
         ttk.Button(parent, text="📷  框選盤面", style="Accent.TButton",
                    command=self._orb_calibrate).pack(
-            fill=tk.X, padx=PX, pady=(12, 6))
+            fill=tk.X, padx=PX, pady=(0, 6))
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
-
-        # ── Window binding (optional) ─────────────────────────────────────────
-        self._build_window_picker(parent, self._tab2_win, PX)
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
 
         def _row(label, var, default):
             r = tk.Frame(parent, bg=_C["bg"])

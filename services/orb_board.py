@@ -12,7 +12,7 @@ Board = list[list[str]]
 FIRE  = "火"
 WATER = "水"
 WOOD  = "木"
-EARTH = "土"
+LIGHT = "光"
 DARK  = "暗"
 HEART = "心"
 EMPTY = "?"
@@ -23,7 +23,7 @@ EMPTY = "?"
 # separated by 心 being higher-hue magenta (≥152) vs 火 low-hue red (≤12 or ≥170)
 _ORB_HSV = [
     (FIRE,  [(0, 12), (170, 179)]),   # red — wraps around 179→0
-    (EARTH, [(13, 38)]),              # orange-gold
+    (LIGHT, [(13, 38)]),              # orange-gold (yellow/gold = 光 in ToS)
     (WOOD,  [(45, 92)]),              # green
     (WATER, [(92, 128)]),             # blue
     (DARK,  [(128, 152)]),            # purple/violet
@@ -35,7 +35,7 @@ ORB_COLOR = {
     FIRE:  "#f87171",
     WATER: "#60a5fa",
     WOOD:  "#4ade80",
-    EARTH: "#fbbf24",
+    LIGHT: "#fbbf24",
     DARK:  "#c084fc",
     HEART: "#f472b6",
     EMPTY: "#334155",
