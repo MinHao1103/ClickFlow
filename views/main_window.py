@@ -585,31 +585,30 @@ class MainWindow:
         self._build_orb_tab(tab2)
 
     def _build_automation_tab(self, parent: ttk.Frame) -> None:
-        # Notebook tab frames are managed by 'place' internally.
-        # Using grid(sticky="nsew") ensures mid receives the full tab area height.
         parent.rowconfigure(0, weight=1)
         parent.columnconfigure(0, weight=1)
 
         mid = ttk.Frame(parent)
         mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
         mid.rowconfigure(0, weight=1)
+        # Three columns: left(1) + center(2) + right(1) — proportional, all scalable
+        mid.columnconfigure(0, weight=1, minsize=240)
+        mid.columnconfigure(1, weight=2, minsize=160)
+        mid.columnconfigure(2, weight=1, minsize=230)
 
-        # LEFT — step editor, fixed width
-        left = ttk.LabelFrame(mid, text="  步驟編輯器", width=285)
-        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
-        left.pack_propagate(False)
+        left = ttk.LabelFrame(mid, text="  步驟編輯器")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         self._build_step_editor(left)
 
-        # RIGHT — control panel, fixed width
-        right = ttk.LabelFrame(mid, text="  控制台", width=275)
-        right.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0))
-        right.pack_propagate(False)
-        self._build_execution_panel(right)
-
-        # CENTER — takes all remaining space
         center = ttk.LabelFrame(mid, text="  步驟序列")
-        center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
+        center.grid(row=0, column=1, sticky="nsew", padx=4)
+        center.rowconfigure(0, weight=1)
+        center.columnconfigure(0, weight=1)
         self._build_step_sequence(center)
+
+        right = ttk.LabelFrame(mid, text="  控制台")
+        right.grid(row=0, column=2, sticky="nsew", padx=(4, 0))
+        self._build_execution_panel(right)
 
     def _build_orb_tab(self, parent: ttk.Frame) -> None:
         parent.rowconfigure(0, weight=1)
@@ -618,16 +617,16 @@ class MainWindow:
         mid = ttk.Frame(parent)
         mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=4)
         mid.rowconfigure(0, weight=1)
+        # Two columns: settings(1) + preview(3) — preview gets most space
+        mid.columnconfigure(0, weight=1, minsize=220)
+        mid.columnconfigure(1, weight=3, minsize=300)
 
-        # ── LEFT: settings panel ──────────────────────────────────────────────
-        left = ttk.LabelFrame(mid, text="  盤面設定", width=230)
-        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
-        left.pack_propagate(False)
+        left = ttk.LabelFrame(mid, text="  盤面設定")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         self._build_orb_settings(left)
 
-        # ── RIGHT: preview + execute ──────────────────────────────────────────
         right = ttk.Frame(mid)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4)
+        right.grid(row=0, column=1, sticky="nsew")
         self._build_orb_preview(right)
 
     def _build_orb_settings(self, parent: ttk.LabelFrame) -> None:
@@ -676,24 +675,28 @@ class MainWindow:
                    command=self._orb_recognize_test).pack(
             fill=tk.X, padx=PX, pady=(0, 4))
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=6)
+        # ── Bottom-anchored execution controls (packed before the scrollable area) ──
+        # Pack in reverse visual order so bottom items stay pinned regardless of height.
 
-        # Execute
+        self._btn_orb_stop = ttk.Button(
+            parent, text="■  停止連續", style="Stop.TButton",
+            command=self._orb_stop_loop)
+        self._btn_orb_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 8))
+        self._btn_orb_stop.pack_forget()   # hidden until loop starts
+
         self._btn_orb_run = ttk.Button(
             parent, text="▶  執行轉珠", style="Start.TButton",
             command=self._orb_execute)
-        self._btn_orb_run.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        self._btn_orb_run.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
 
         tk.Label(parent, text="快捷鍵：F8", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "italic")).pack(
-            anchor=tk.W, padx=PX)
+            side=tk.BOTTOM, anchor=tk.W, padx=PX)
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=8)
-
-        # Continuous mode
+        # Continuous mode row — sits just above the execute button
         self._orb_var_loop = tk.BooleanVar(value=False)
         loop_row = tk.Frame(parent, bg=_C["bg"])
-        loop_row.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        loop_row.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(4, 2))
         ttk.Checkbutton(loop_row, text="連續模式", variable=self._orb_var_loop,
                         style="TCheckbutton").pack(side=tk.LEFT)
 
@@ -706,11 +709,8 @@ class MainWindow:
         tk.Label(loop_row, text="秒", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(2, 0))
 
-        self._btn_orb_stop = ttk.Button(
-            parent, text="■  停止連續", style="Stop.TButton",
-            command=self._orb_stop_loop)
-        self._btn_orb_stop.pack(fill=tk.X, padx=PX, pady=(0, 4))
-        self._btn_orb_stop.pack_forget()   # hidden until loop starts
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
+            side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
 
     def _build_orb_preview(self, parent: ttk.Frame) -> None:
         # ── Title ─────────────────────────────────────────────────────────────
@@ -878,9 +878,9 @@ class MainWindow:
                         interval = 6
                     ms = int(interval * 1000)
                     self._root.after(0, lambda: self._lbl_orb_status.config(
-                        text=f"轉珠完成，{interval:.0f} 秒後自動執行下一次",
+                        text=f"轉珠完成，{interval:.0f} 秒後偵測盤面…",
                         fg=_C["success"]))
-                    self._orb_loop_after = self._root.after(ms, self._orb_execute)
+                    self._orb_loop_after = self._root.after(ms, self._orb_loop_check)
                 else:
                     self._root.after(0, lambda: self._lbl_orb_status.config(
                         text="轉珠完成", fg=_C["success"]))
@@ -896,6 +896,27 @@ class MainWindow:
         except Exception as exc:
             self._lbl_orb_status.config(text=f"錯誤：{exc}", fg=_C["danger"])
             self._orb_reset_run_btn()
+
+    def _orb_loop_check(self) -> None:
+        """Snapshot the board region before next iteration; stop if battle has ended."""
+        if not self._orb_loop_active or not self._orb_config:
+            return
+        try:
+            from services.orb_board import OrbBoard, EMPTY
+            board = OrbBoard(self._orb_config).snapshot()
+            flat = [cell for row in board for cell in row]
+            total = len(flat)
+            empty_count = flat.count(EMPTY)
+            orb_types = {c for c in flat if c != EMPTY}
+            # Covered board: >50% unrecognised OR all cells same type (dialog artifact)
+            if empty_count > total * 0.5 or len(orb_types) <= 1:
+                self._lbl_orb_status.config(
+                    text="偵測到關卡結束，自動停止連續模式", fg=_C["warning"])
+                self._orb_stop_loop()
+                return
+        except Exception:
+            pass  # recognition error — just continue
+        self._orb_execute()
 
     def _orb_stop_loop(self) -> None:
         self._orb_loop_active = False
