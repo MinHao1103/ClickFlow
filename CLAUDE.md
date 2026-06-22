@@ -15,7 +15,7 @@ The app has **two independent functional modes** selectable via tabs in the main
 ```bash
 pip install -r requirements.txt
 python main.py
-pyinstaller --onefile --windowed --name ClickFlow --hidden-import pyscreeze --hidden-import mouseinfo main.py
+pyinstaller ClickFlow.spec   # preferred — spec has complete hiddenimports list
 ```
 
 Logs are written to `logs/app.log` (created automatically).  
@@ -38,6 +38,7 @@ services/             all business logic, never import from views/
   orb_board.py        screenshot → Board (2D OrbType array); colour recognition via HSV
   orb_solver.py       Beam Search solver; returns List[(row,col)] path maximising combos
   orb_executor.py     converts path to mouseDown/moveTo/mouseUp drag sequence
+  window_manager.py   Win32 helpers: list_windows(), get_window_rect(), is_window_valid()
 views/
   main_window.py      entire UI; _C palette dict + ttk.Style("clam")
                       module-level: _Mini, _MiniRecorder, _Tip, _RegionSelector helper classes
@@ -88,6 +89,16 @@ self._root.after(0, self._some_method)
 **IME decimal normalization — two layers**:
 1. `_disable_ime(widget)` calls `ctypes.windll.imm32.ImmAssociateContext(hwnd, 0)` to fully disassociate Windows IME from a widget on `<Map>`. `_numeric_entry(parent, textvariable, **kw)` wraps `ttk.Entry` and attaches this binding; all six numeric fields (X, Y, count, delay, max_delay, rounds) are created through it.
 2. `_auto_norm(var)` is still registered as a `trace_add("write", ...)` fallback that converts `。`/`．` → `.` on any write. `_norm()` (static) does the same plus `.strip()` and is called before `float()`/`int()` parsing in `_parse_step()` and `_start_recording()`.
+
+## Window Binding (Tab 1)
+
+Tab 1 supports binding a profile's playback to a named OS window so that step coordinates track the window if it is moved between recording and replay.
+
+- `MainWindow._build_window_binding_row()` renders a Combobox populated by `window_manager.list_windows()`. On selection, `get_window_rect()` captures the window's top-left as the reference position (`binding["ref"]`).
+- At execution time, `_get_window_offset(binding)` calls `_resolve_bound_window()` → `get_window_rect()` and returns `(dx, dy)` = current position − reference position.
+- `_offset_step(step, dx, dy)` returns a shallow-copied step with coordinates shifted; only coord-bearing action types (`click`, `double_click`, `right_click`, `move`, `drag`) are adjusted.
+- `_resolve_bound_window()` refreshes a stale `hwnd` by re-scanning window titles, so playback survives the target app being restarted.
+- No binding (`不綁定`) leaves `binding["hwnd"]` as `None` and offset as `(0, 0)`, a no-op.
 
 ## Overlay Windows
 
