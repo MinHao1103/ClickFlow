@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from models.click_step import ClickStep
+from models.orb_config import OrbConfig
 from models.profile import Profile
 from models.scene_rule import SceneRule
 
@@ -49,6 +50,22 @@ CREATE TABLE IF NOT EXISTS scene_rules (
     cooldown   REAL    NOT NULL DEFAULT 3.0,
     enabled    INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS orb_configs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    UNIQUE NOT NULL,
+    board_x       INTEGER NOT NULL DEFAULT 0,
+    board_y       INTEGER NOT NULL DEFAULT 0,
+    cell_w        INTEGER NOT NULL DEFAULT 0,
+    cell_h        INTEGER NOT NULL DEFAULT 0,
+    rows          INTEGER NOT NULL DEFAULT 5,
+    cols          INTEGER NOT NULL DEFAULT 6,
+    drag_speed_ms INTEGER NOT NULL DEFAULT 25,
+    beam_width    INTEGER NOT NULL DEFAULT 50,
+    max_steps     INTEGER NOT NULL DEFAULT 50,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -220,3 +237,51 @@ class DatabaseManager:
         except sqlite3.Error:
             logger.exception("Failed to load scene rules")
             raise
+
+    # ── Orb config ────────────────────────────────────────────────────────────
+
+    def save_orb_config(self, cfg: OrbConfig) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """INSERT INTO orb_configs
+                       (name, board_x, board_y, cell_w, cell_h,
+                        rows, cols, drag_speed_ms, beam_width, max_steps, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                       ON CONFLICT(name) DO UPDATE SET
+                           board_x=excluded.board_x, board_y=excluded.board_y,
+                           cell_w=excluded.cell_w,   cell_h=excluded.cell_h,
+                           rows=excluded.rows,        cols=excluded.cols,
+                           drag_speed_ms=excluded.drag_speed_ms,
+                           beam_width=excluded.beam_width,
+                           max_steps=excluded.max_steps,
+                           updated_at=CURRENT_TIMESTAMP""",
+                    (cfg.name, cfg.board_x, cfg.board_y, cfg.cell_w, cfg.cell_h,
+                     cfg.rows, cfg.cols, cfg.drag_speed_ms, cfg.beam_width, cfg.max_steps),
+                )
+            logger.info("Saved orb config: %s", cfg.name)
+        except sqlite3.Error:
+            logger.exception("Failed to save orb config")
+            raise
+
+    def load_orb_config(self, name: str = "default") -> Optional[OrbConfig]:
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT * FROM orb_configs WHERE name = ?", (name,)
+                ).fetchone()
+            if row is None:
+                return None
+            return OrbConfig(
+                name=row["name"],
+                board_x=row["board_x"], board_y=row["board_y"],
+                cell_w=row["cell_w"],   cell_h=row["cell_h"],
+                rows=row["rows"],       cols=row["cols"],
+                drag_speed_ms=row["drag_speed_ms"],
+                beam_width=row["beam_width"],
+                max_steps=row["max_steps"],
+                db_id=row["id"],
+            )
+        except sqlite3.Error:
+            logger.exception("Failed to load orb config")
+            return None

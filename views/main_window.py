@@ -793,12 +793,20 @@ class MainWindow:
             fg=_C["text_muted"], font=("Segoe UI", 9))
         self._lbl_orb_status.pack(anchor=tk.W)
 
-        # internal state
-        self._orb_config      = None   # OrbConfig instance once calibrated
+        # internal state — try to restore saved calibration from DB
+        self._orb_config      = self._db.load_orb_config("default")
         self._orb_board_img   = None   # latest PIL screenshot for preview
         self._orb_executor    = None   # OrbExecutor instance during execution
         self._orb_loop_active = False  # continuous mode flag
         self._orb_loop_after  = None   # root.after ID for next scheduled solve
+        if self._orb_config:
+            cfg = self._orb_config
+            self._root.after(200, lambda: self._lbl_orb_status.config(
+                text=(f"已校準：{cfg.rows}×{cfg.cols}，"
+                      f"格子 {cfg.cell_w}×{cfg.cell_h}px  "
+                      f"原點({cfg.board_x},{cfg.board_y})"),
+                fg=_C["success"],
+            ))
 
     def _orb_canvas_resize(self, _e: tk.Event) -> None:
         w = self._orb_canvas.winfo_width()
@@ -1303,6 +1311,10 @@ class MainWindow:
                         if rect:
                             self._tab2_win["ref"]      = (rect[0], rect[1])
                             self._tab2_win["ref_size"] = (rect[2], rect[3])
+                try:
+                    self._db.save_orb_config(self._orb_config)
+                except Exception:
+                    logger.exception("Failed to save orb config")
                 self._lbl_orb_status.config(
                     text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px  原點({bx},{by})",
                     fg=_C["success"])
