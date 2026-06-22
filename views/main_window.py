@@ -2491,6 +2491,9 @@ class MainWindow:
         if self._orb_executor and self._orb_executor.is_running:
             self._orb_executor.abort()
         self._orb_loop_active = False
+        # Tab-3: stop scene runner
+        if self._scene_runner and self._scene_runner.is_running:
+            self._scene_runner.stop()
         # Tkinter calls must happen on the GUI thread
         self._root.after(0, self._space_stop_cleanup)
 
@@ -2501,6 +2504,8 @@ class MainWindow:
             self._orb_loop_after = None
         self._orb_reset_run_btn()
         self._lbl_orb_status.config(text="已停止", fg=_C["text_muted"])
+        # Reset Tab-3 scene buttons
+        self._scene_stop()
 
     def _show_mini(self) -> None:
         self._root.withdraw()
