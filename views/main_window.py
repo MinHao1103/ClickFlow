@@ -403,6 +403,14 @@ class MainWindow:
         self._scene_preview_photo = None           # keep PhotoImage alive
         self._tab3_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
 
+        # ── Orb config (shared by Tab 2 and Tab 3, loaded once from DB) ──────
+        self._orb_config      = self._db.load_orb_config("default")
+        self._orb_board_img   = None
+        self._orb_executor    = None
+        self._orb_loop_active = False
+        self._orb_loop_after  = None
+        self._scene_lbl_orb   = None   # Tab 3 calibration label (set during build)
+
         self._apply_styles()
         self._build_window()
         self._build_ui()
@@ -793,12 +801,6 @@ class MainWindow:
             fg=_C["text_muted"], font=("Segoe UI", 9))
         self._lbl_orb_status.pack(anchor=tk.W)
 
-        # internal state — try to restore saved calibration from DB
-        self._orb_config      = self._db.load_orb_config("default")
-        self._orb_board_img   = None   # latest PIL screenshot for preview
-        self._orb_executor    = None   # OrbExecutor instance during execution
-        self._orb_loop_active = False  # continuous mode flag
-        self._orb_loop_after  = None   # root.after ID for next scheduled solve
         if self._orb_config:
             cfg = self._orb_config
             self._root.after(200, lambda: self._lbl_orb_status.config(
@@ -995,6 +997,24 @@ class MainWindow:
             parent, text="⚙  載入摩靈預設場景", style="Ghost.TButton",
             command=self._scene_load_tos_preset,
         ).pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
+            side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
+
+        # ── Orb calibration (independent — no need to visit Tab 2) ──────────
+        orb_row = tk.Frame(parent, bg=_C["bg"])
+        orb_row.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
+
+        ttk.Button(
+            orb_row, text="⊙  校準轉珠盤位置", style="Ghost.TButton",
+            command=self._orb_calibrate,
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self._scene_lbl_orb = tk.Label(
+            parent, bg=_C["bg"], fg=_C["text_muted"],
+            font=("Segoe UI", 8), anchor=tk.W)
+        self._scene_lbl_orb.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 2))
+        self._scene_update_orb_label()
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
             side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
@@ -1264,6 +1284,18 @@ class MainWindow:
         self._btn_scene_stop.pack_forget()
         self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 4))
 
+    def _scene_update_orb_label(self) -> None:
+        if self._scene_lbl_orb is None:
+            return
+        if self._orb_config:
+            cfg = self._orb_config
+            self._scene_lbl_orb.config(
+                text=f"轉珠盤：已校準 {cfg.rows}×{cfg.cols}  原點({cfg.board_x},{cfg.board_y})",
+                fg=_C["success"])
+        else:
+            self._scene_lbl_orb.config(
+                text="轉珠盤：尚未校準（點上方按鈕框選）", fg=_C["warning"])
+
     def _scene_on_status(self, msg: str) -> None:
         if msg not in ("掃描中…",):   # suppress noisy idle messages from log
             self._scene_log_append(msg + "\n")
@@ -1318,6 +1350,7 @@ class MainWindow:
                 self._lbl_orb_status.config(
                     text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px  原點({bx},{by})",
                     fg=_C["success"])
+                self._scene_update_orb_label()
             except Exception as exc:
                 self._lbl_orb_status.config(text=f"校準失敗：{exc}", fg=_C["danger"])
 
