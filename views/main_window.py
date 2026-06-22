@@ -818,7 +818,8 @@ class MainWindow:
                         from services.window_manager import get_window_rect
                         rect = get_window_rect(hwnd)
                         if rect:
-                            self._tab2_win["ref"] = (rect[0], rect[1])
+                            self._tab2_win["ref"]      = (rect[0], rect[1])
+                            self._tab2_win["ref_size"] = (rect[2], rect[3])
                 self._lbl_orb_status.config(
                     text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px  原點({bx},{by})",
                     fg=_C["success"])
@@ -836,13 +837,7 @@ class MainWindow:
         try:
             from services.orb_board import OrbBoard
             from services.orb_solver import score_board
-            config = self._orb_config
-            dx, dy = self._get_window_offset(self._tab2_win)
-            if dx != 0 or dy != 0:
-                import copy as _copy
-                config = _copy.copy(config)
-                config.board_x += dx
-                config.board_y += dy
+            config = self._transform_orb_config(self._orb_config, self._tab2_win)
             board_svc = OrbBoard(config)
             board = board_svc.snapshot()
             self._orb_draw_board(board)
@@ -874,20 +869,14 @@ class MainWindow:
                 from services.orb_solver import OrbSolver
                 from services.orb_executor import OrbExecutor
 
-                # Apply window-binding offset if active
-                config = self._orb_config
+                # Apply window-binding transform (position + scale) if active
                 if self._tab2_win.get("title"):
                     if self._resolve_bound_window(self._tab2_win) is None:
                         self._root.after(0, lambda: messagebox.showwarning(
                             "綁定視窗", "找不到綁定的視窗，請重新整理並選擇"))
                         self._root.after(0, self._orb_reset_run_btn)
                         return
-                    dx, dy = self._get_window_offset(self._tab2_win)
-                    if dx != 0 or dy != 0:
-                        import copy as _copy
-                        config = _copy.copy(config)
-                        config.board_x += dx
-                        config.board_y += dy
+                config = self._transform_orb_config(self._orb_config, self._tab2_win)
 
                 board = OrbBoard(config).snapshot()
                 self._root.after(0, lambda: self._orb_draw_board(board))
@@ -949,13 +938,7 @@ class MainWindow:
         def _check():
             try:
                 from services.orb_board import OrbBoard, EMPTY
-                config = self._orb_config
-                dx, dy = self._get_window_offset(self._tab2_win)
-                if dx != 0 or dy != 0:
-                    import copy as _copy
-                    config = _copy.copy(config)
-                    config.board_x += dx
-                    config.board_y += dy
+                config = self._transform_orb_config(self._orb_config, self._tab2_win)
                 board = OrbBoard(config).snapshot()
                 flat  = [cell for row in board for cell in row]
                 total = len(flat)
@@ -1613,9 +1596,10 @@ class MainWindow:
             val = win_var.get()
             win_map = binding.get("map", {})
             if val == "(不綁定)" or val not in win_map:
-                binding["hwnd"]  = None
-                binding["title"] = None
-                binding["ref"]   = (0, 0)
+                binding["hwnd"]     = None
+                binding["title"]    = None
+                binding["ref"]      = (0, 0)
+                binding["ref_size"] = None
                 return
             hwnd = win_map[val]
             from services.window_manager import get_window_rect
@@ -1624,9 +1608,10 @@ class MainWindow:
                 messagebox.showwarning("綁定視窗", "無法取得視窗位置，請重新整理")
                 win_var.set("(不綁定)")
                 return
-            binding["hwnd"]  = hwnd
-            binding["title"] = val      # used to re-locate window if hwnd goes stale
-            binding["ref"]   = (rect[0], rect[1])
+            binding["hwnd"]     = hwnd
+            binding["title"]    = val      # used to re-locate window if hwnd goes stale
+            binding["ref"]      = (rect[0], rect[1])
+            binding["ref_size"] = (rect[2], rect[3])
 
         ttk.Button(row, text="↻", style="Ghost.TButton",
                    command=_refresh).pack(side=tk.LEFT, padx=(2, 0))
@@ -1661,6 +1646,38 @@ class MainWindow:
             return (0, 0)
         ref_x, ref_y = binding["ref"]
         return (rect[0] - ref_x, rect[1] - ref_y)
+
+    def _transform_orb_config(self, config, binding: dict):
+        """Return a copy of OrbConfig adjusted for window move and/or resize.
+        Applies both translation (dx, dy) and scale (sx, sy) so that the board
+        region tracks the window even when its size changes.
+        Returns the original config unchanged when unbound or window is gone."""
+        if not binding.get("title"):
+            return config
+        hwnd = self._resolve_bound_window(binding)
+        if hwnd is None:
+            return config
+        from services.window_manager import get_window_rect
+        rect = get_window_rect(hwnd)
+        if rect is None:
+            return config
+        ref_x, ref_y = binding["ref"]
+        ref_size = binding.get("ref_size")
+        sx = rect[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
+        sy = rect[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
+        dx = rect[0] - ref_x
+        dy = rect[1] - ref_y
+        if dx == 0 and dy == 0 and sx == 1.0 and sy == 1.0:
+            return config
+        import copy as _copy
+        cfg = _copy.copy(config)
+        # board_x/y are absolute screen coords at calibration time.
+        # new = current_win_origin + scaled_offset_from_ref_origin_to_board
+        cfg.board_x = round(rect[0] + (config.board_x - ref_x) * sx)
+        cfg.board_y = round(rect[1] + (config.board_y - ref_y) * sy)
+        cfg.cell_w  = max(1, round(config.cell_w * sx))
+        cfg.cell_h  = max(1, round(config.cell_h * sy))
+        return cfg
 
     @staticmethod
     def _offset_step(step: "ClickStep", dx: int, dy: int) -> "ClickStep":
