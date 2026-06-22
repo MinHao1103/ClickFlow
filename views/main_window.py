@@ -1127,13 +1127,16 @@ class MainWindow:
     def _scene_load_tos_preset(self) -> None:
         import os
         base = os.path.join("images", "scene")
+        # (name, image, action, confidence, cooldown)
         presets = [
-            ("珠盤就緒",  os.path.join(base, "scene_battle_banner.png"),  "orb_solve", 10.0),
-            ("選擇盟友",  os.path.join(base, "scene_ally_header.png"),    "click",      3.0),
-            ("勝利確認",  os.path.join(base, "scene_victory_smiley.png"), "click",      3.0),
-            ("關卡結算",  os.path.join(base, "scene_reward_header.png"),  "click",      3.0),
+            ("珠盤就緒",  "scene_battle_banner.png",  "orb_solve", 0.75, 10.0),
+            ("斷線重連",  "scene_btn_confirm.png",    "click",     0.85,  5.0),
+            ("選擇盟友",  "scene_ally_header.png",    "click",     0.80,  3.0),
+            ("知道了",    "scene_btn_zhidaole.png",   "click",     0.85,  2.0),
+            ("確定",      "scene_btn_ok.png",         "click",     0.85,  2.0),
         ]
-        missing = [name for name, path, _, _ in presets if not os.path.exists(path)]
+        missing = [n for n, f, *_ in presets
+                   if not os.path.exists(os.path.join(base, f))]
         if missing:
             messagebox.showwarning("載入預設",
                 f"找不到預設圖片：{', '.join(missing)}\n"
@@ -1145,20 +1148,20 @@ class MainWindow:
                 return
         self._scene_rules = [
             SceneRule(
-                image_path=path,
+                image_path=os.path.join(base, fname),
                 action=action,
                 name=name,
-                confidence=0.8,
+                confidence=conf,
                 cooldown=cooldown,
                 enabled=True,
                 order_idx=i,
             )
-            for i, (name, path, action, cooldown) in enumerate(presets)
+            for i, (name, fname, action, conf, cooldown) in enumerate(presets)
         ]
         self._scene_sel = None
         self._scene_refresh_list()
         self._scene_save()
-        self._scene_log_append("已載入摩靈傳說預設場景（4 條規則）\n")
+        self._scene_log_append("已載入摩靈傳說預設場景（5 條規則）\n")
 
     # ── runner control ────────────────────────────────────────────────────────
 
