@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 
 from models.click_step import ClickStep
 from models.profile import Profile
+from models.scene_rule import SceneRule
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,18 @@ CREATE TABLE IF NOT EXISTS actions (
 
 CREATE INDEX IF NOT EXISTS idx_actions_profile ON actions(profile_id);
 CREATE INDEX IF NOT EXISTS idx_actions_order ON actions(profile_id, order_idx);
+
+CREATE TABLE IF NOT EXISTS scene_rules (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_idx  INTEGER NOT NULL DEFAULT 0,
+    name       TEXT    NOT NULL DEFAULT '',
+    image_path TEXT    NOT NULL,
+    action     TEXT    NOT NULL DEFAULT 'click',
+    confidence REAL    NOT NULL DEFAULT 0.8,
+    cooldown   REAL    NOT NULL DEFAULT 3.0,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -164,4 +177,46 @@ class DatabaseManager:
             return [r["name"] for r in rows]
         except sqlite3.Error:
             logger.exception("Failed to list profiles")
+            raise
+
+    # ── Scene rules ───────────────────────────────────────────────────────────
+
+    def save_scene_rules(self, rules: List[SceneRule]) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM scene_rules")
+                for i, r in enumerate(rules):
+                    conn.execute(
+                        """INSERT INTO scene_rules
+                           (order_idx, name, image_path, action, confidence, cooldown, enabled)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (i, r.name, r.image_path, r.action,
+                         r.confidence, r.cooldown, int(r.enabled)),
+                    )
+            logger.info("Saved %d scene rules", len(rules))
+        except sqlite3.Error:
+            logger.exception("Failed to save scene rules")
+            raise
+
+    def load_scene_rules(self) -> List[SceneRule]:
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM scene_rules ORDER BY order_idx"
+                ).fetchall()
+            return [
+                SceneRule(
+                    image_path=r["image_path"],
+                    action=r["action"],
+                    name=r["name"] or "",
+                    confidence=r["confidence"],
+                    cooldown=r["cooldown"],
+                    enabled=bool(r["enabled"]),
+                    order_idx=r["order_idx"],
+                    db_id=r["id"],
+                )
+                for r in rows
+            ]
+        except sqlite3.Error:
+            logger.exception("Failed to load scene rules")
             raise

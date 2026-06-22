@@ -6,7 +6,9 @@ from typing import List, Optional
 
 from models.click_step import ClickStep
 from models.profile import Profile
+from models.scene_rule import SceneRule
 from services.database_manager import DatabaseManager
+from services.scene_runner import SceneRunner
 from services.click_executor import ClickExecutor, ExecutionState
 from services.keyboard_monitor import KeyboardMonitor
 from services.mouse_tracker import MouseTracker
@@ -381,12 +383,22 @@ class MainWindow:
             on_orb_solve=self._orb_execute,
         )
 
+        # ── Tab 3 scene-runner state ─────────────────────────────────────────
+        self._scene_rules: List[SceneRule] = []
+        self._scene_runner: Optional[SceneRunner] = None
+        self._scene_sel: Optional[int] = None      # selected rule index
+        self._scene_preview_photo = None           # keep PhotoImage alive
+
         self._apply_styles()
         self._build_window()
         self._build_ui()
         self._apply_action_state()
         self._refresh_list()          # show empty-state immediately
         self._reload_profile_list()
+        try:
+            self._scene_rules = self._db.load_scene_rules()
+        except Exception:
+            pass
         self._mouse_tracker.start()
         self._keyboard_monitor.start()
 
@@ -590,6 +602,11 @@ class MainWindow:
         nb.add(tab2, text="  🔮  轉珠  ")
         self._build_orb_tab(tab2)
 
+        # ── Tab 3: 場景腳本 ─────────────────────────────────────────────────
+        tab3 = ttk.Frame(nb)
+        nb.add(tab3, text="  🎮  場景腳本  ")
+        self._build_scene_tab(tab3)
+
     def _build_automation_tab(self, parent: ttk.Frame) -> None:
         parent.rowconfigure(0, weight=1)
         parent.columnconfigure(0, weight=1)
@@ -787,6 +804,357 @@ class MainWindow:
         self._lbl_orb_status.config(
             text=f"{'標準' if is_std else '高精度'} 模式：精度 {beam}，步數 {steps}",
             fg=_C["text_muted"])
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Tab 3 — 場景腳本
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _build_scene_tab(self, parent: ttk.Frame) -> None:
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
+
+        mid = ttk.Frame(parent)
+        mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
+        mid.rowconfigure(0, weight=1)
+        mid.columnconfigure(0, weight=1, minsize=320)
+        mid.columnconfigure(1, weight=1, minsize=280)
+
+        left = ttk.LabelFrame(mid, text="  規則列表")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        self._build_scene_rules_panel(left)
+
+        right = ttk.LabelFrame(mid, text="  執行")
+        right.grid(row=0, column=1, sticky="nsew")
+        self._build_scene_control_panel(right)
+
+    # ── left: rule list + edit form ───────────────────────────────────────────
+
+    def _build_scene_rules_panel(self, parent: ttk.LabelFrame) -> None:
+        PX = 10
+
+        # ── Listbox ─────────────────────────────────────────────────────────
+        lb_wrap = tk.Frame(parent, bg=_C["card"],
+                           highlightthickness=1, highlightbackground=_C["border"])
+        lb_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(6, 4))
+
+        sb = tk.Scrollbar(lb_wrap, orient=tk.VERTICAL, bg=_C["bg_dark"],
+                          troughcolor=_C["bg"], activebackground=_C["accent"])
+        self._scene_lb = tk.Listbox(
+            lb_wrap,
+            bg=_C["card"], fg=_C["text"],
+            selectbackground=_C["accent"], selectforeground="white",
+            font=("Segoe UI", 9),
+            relief="flat", bd=0,
+            activestyle="none",
+            yscrollcommand=sb.set,
+        )
+        sb.config(command=self._scene_lb.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._scene_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._scene_lb.bind("<<ListboxSelect>>", self._scene_on_select)
+
+        # ── Button row ──────────────────────────────────────────────────────
+        btn_row = tk.Frame(parent, bg=_C["bg"])
+        btn_row.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        ttk.Button(btn_row, text="＋ 新增", style="Ghost.TButton",
+                   command=self._scene_add).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(btn_row, text="✕ 刪除", style="GhostDanger.TButton",
+                   command=self._scene_delete).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(btn_row, text="↑", style="Ghost.TButton", width=3,
+                   command=self._scene_move_up).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(btn_row, text="↓", style="Ghost.TButton", width=3,
+                   command=self._scene_move_down).pack(side=tk.LEFT)
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 8))
+
+        # ── Edit form ────────────────────────────────────────────────────────
+        form = tk.Frame(parent, bg=_C["bg"])
+        form.pack(fill=tk.X, padx=PX)
+
+        # Name + enabled
+        row0 = tk.Frame(form, bg=_C["bg"])
+        row0.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(row0, text="名稱", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_name = tk.StringVar()
+        ttk.Entry(row0, textvariable=self._scene_var_name,
+                  font=("Segoe UI", 9), width=16).pack(side=tk.LEFT, padx=(0, 8))
+        self._scene_var_enabled = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row0, text="啟用",
+                        variable=self._scene_var_enabled).pack(side=tk.LEFT)
+
+        # Image path
+        row1 = tk.Frame(form, bg=_C["bg"])
+        row1.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(row1, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_imgpath = tk.StringVar()
+        self._scene_var_imgpath.trace_add("write",
+            lambda *_: self._root.after(50, self._scene_update_preview))
+        ttk.Entry(row1, textvariable=self._scene_var_imgpath,
+                  font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(row1, text="瀏覽", style="Ghost.TButton",
+                   command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="框選", style="Ghost.TButton",
+                   command=self._scene_capture).pack(side=tk.LEFT)
+
+        # Image preview — fixed-height frame prevents Label height=N (chars) issue
+        prev_frame = tk.Frame(form, bg=_C["card"], height=80)
+        prev_frame.pack(fill=tk.X, pady=(0, 6))
+        prev_frame.pack_propagate(False)
+        self._scene_preview_lbl = tk.Label(
+            prev_frame, bg=_C["card"],
+            text="（無圖片）", fg=_C["text_muted"], font=("Segoe UI", 8))
+        self._scene_preview_lbl.pack(fill=tk.BOTH, expand=True)
+
+        # Action radio
+        row2 = tk.Frame(form, bg=_C["bg"])
+        row2.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(row2, text="動作", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
+        self._scene_var_action = tk.StringVar(value="click")
+        ttk.Radiobutton(row2, text="點擊", variable=self._scene_var_action,
+                        value="click").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Radiobutton(row2, text="轉珠", variable=self._scene_var_action,
+                        value="orb_solve").pack(side=tk.LEFT)
+
+        # Confidence + cooldown
+        row3 = tk.Frame(form, bg=_C["bg"])
+        row3.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(row3, text="信心度", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_conf = tk.StringVar(value="0.8")
+        self._numeric_entry(row3, self._scene_var_conf, width=5).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(row3, text="冷卻", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_cool = tk.StringVar(value="3.0")
+        self._numeric_entry(row3, self._scene_var_cool, width=5).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        ttk.Button(form, text="套用", style="Accent.TButton",
+                   command=self._scene_apply_edit).pack(fill=tk.X, pady=(0, 4))
+
+    # ── right: log + start/stop ───────────────────────────────────────────────
+
+    def _build_scene_control_panel(self, parent: ttk.LabelFrame) -> None:
+        PX = 10
+
+        # ── Start / Stop (bottom-anchored) ──────────────────────────────────
+        self._btn_scene_stop = ttk.Button(
+            parent, text="■  停止場景腳本", style="Stop.TButton",
+            command=self._scene_stop)
+        self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 8))
+        self._btn_scene_stop.pack_forget()
+
+        self._btn_scene_start = ttk.Button(
+            parent, text="▶  開始場景腳本", style="Start.TButton",
+            command=self._scene_start)
+        self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
+            side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
+
+        # ── Status log ──────────────────────────────────────────────────────
+        tk.Label(parent, text="執行記錄", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(
+            anchor=tk.W, padx=PX, pady=(6, 2))
+
+        log_wrap = tk.Frame(parent, bg=_C["card"],
+                            highlightthickness=1, highlightbackground=_C["border"])
+        log_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(0, 4))
+
+        sb = tk.Scrollbar(log_wrap, orient=tk.VERTICAL, bg=_C["bg_dark"],
+                          troughcolor=_C["bg"], activebackground=_C["accent"])
+        self._scene_log_txt = tk.Text(
+            log_wrap,
+            bg=_C["card"], fg=_C["text_muted"],
+            font=("Segoe UI", 8),
+            relief="flat", bd=0,
+            state=tk.DISABLED,
+            wrap=tk.WORD,
+            yscrollcommand=sb.set,
+        )
+        sb.config(command=self._scene_log_txt.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._scene_log_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    # ── scene helpers ─────────────────────────────────────────────────────────
+
+    def _scene_refresh_list(self) -> None:
+        self._scene_lb.delete(0, tk.END)
+        for r in self._scene_rules:
+            chk  = "☑" if r.enabled else "☐"
+            act  = "點擊" if r.action == "click" else "轉珠"
+            name = r.name or r.image_path.split("/")[-1].split("\\")[-1]
+            self._scene_lb.insert(tk.END, f"  {chk}  {name}  →  {act}  ({r.cooldown}s)")
+            fg = _C["text"] if r.enabled else _C["text_muted"]
+            self._scene_lb.itemconfig(tk.END, foreground=fg)
+
+    def _scene_on_select(self, _e=None) -> None:
+        sel = self._scene_lb.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        if idx >= len(self._scene_rules):
+            return
+        self._scene_sel = idx
+        r = self._scene_rules[idx]
+        self._scene_var_name.set(r.name)
+        self._scene_var_imgpath.set(r.image_path)
+        self._scene_var_action.set(r.action)
+        self._scene_var_conf.set(str(r.confidence))
+        self._scene_var_cool.set(str(r.cooldown))
+        self._scene_var_enabled.set(r.enabled)
+        self._scene_update_preview()
+
+    def _scene_update_preview(self) -> None:
+        path = self._scene_var_imgpath.get().strip()
+        if not path:
+            self._scene_preview_lbl.config(image="", text="（無圖片）")
+            self._scene_preview_photo = None
+            return
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(path)
+            img.thumbnail((200, 80), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            self._scene_preview_photo = photo
+            self._scene_preview_lbl.config(image=photo, text="")
+        except Exception:
+            self._scene_preview_lbl.config(image="", text="（無法載入）")
+            self._scene_preview_photo = None
+
+    def _scene_add(self) -> None:
+        r = SceneRule(image_path="", action="click", name="新規則",
+                      confidence=0.8, cooldown=3.0, enabled=True,
+                      order_idx=len(self._scene_rules))
+        self._scene_rules.append(r)
+        self._scene_refresh_list()
+        self._scene_lb.selection_clear(0, tk.END)
+        self._scene_lb.selection_set(tk.END)
+        self._scene_lb.see(tk.END)
+        self._scene_on_select()
+        self._scene_save()
+
+    def _scene_delete(self) -> None:
+        if self._scene_sel is None:
+            return
+        idx = self._scene_sel
+        if idx >= len(self._scene_rules):
+            return
+        self._scene_rules.pop(idx)
+        self._scene_sel = None
+        self._scene_refresh_list()
+        self._scene_save()
+
+    def _scene_move_up(self) -> None:
+        if self._scene_sel is None or self._scene_sel == 0:
+            return
+        i = self._scene_sel
+        self._scene_rules[i], self._scene_rules[i - 1] = \
+            self._scene_rules[i - 1], self._scene_rules[i]
+        self._scene_sel = i - 1
+        self._scene_refresh_list()
+        self._scene_lb.selection_set(self._scene_sel)
+        self._scene_save()
+
+    def _scene_move_down(self) -> None:
+        if self._scene_sel is None or self._scene_sel >= len(self._scene_rules) - 1:
+            return
+        i = self._scene_sel
+        self._scene_rules[i], self._scene_rules[i + 1] = \
+            self._scene_rules[i + 1], self._scene_rules[i]
+        self._scene_sel = i + 1
+        self._scene_refresh_list()
+        self._scene_lb.selection_set(self._scene_sel)
+        self._scene_save()
+
+    def _scene_apply_edit(self) -> None:
+        if self._scene_sel is None:
+            return
+        idx = self._scene_sel
+        if idx >= len(self._scene_rules):
+            return
+        r = self._scene_rules[idx]
+        r.name       = self._scene_var_name.get().strip()
+        r.image_path = self._scene_var_imgpath.get().strip()
+        r.action     = self._scene_var_action.get()
+        r.enabled    = self._scene_var_enabled.get()
+        try:
+            r.confidence = float(self._scene_var_conf.get() or 0.8)
+        except ValueError:
+            r.confidence = 0.8
+        try:
+            r.cooldown = float(self._scene_var_cool.get() or 3.0)
+        except ValueError:
+            r.cooldown = 3.0
+        self._scene_refresh_list()
+        self._scene_lb.selection_set(idx)
+        self._scene_save()
+
+    def _scene_browse(self) -> None:
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="選擇圖片",
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")],
+        )
+        if path:
+            self._scene_var_imgpath.set(path)
+
+    def _scene_capture(self) -> None:
+        def on_done(path, _lx, _ly):
+            if path:
+                self._scene_var_imgpath.set(path)
+        _RegionSelector(self._root, save_dir="images/scene", on_done=on_done)
+
+    def _scene_save(self) -> None:
+        try:
+            self._db.save_scene_rules(self._scene_rules)
+        except Exception:
+            logger.exception("Failed to save scene rules")
+
+    # ── runner control ────────────────────────────────────────────────────────
+
+    def _scene_start(self) -> None:
+        active = [r for r in self._scene_rules if r.enabled and r.image_path]
+        if not active:
+            messagebox.showwarning("場景腳本", "沒有啟用的規則，請先新增並套用規則")
+            return
+        if self._scene_runner and self._scene_runner.is_running:
+            return
+        self._scene_runner = SceneRunner()
+        self._scene_runner.start(
+            rules=list(self._scene_rules),
+            get_orb_config=lambda: self._orb_config,
+            on_status=lambda msg: self._root.after(0, lambda m=msg: self._scene_on_status(m)),
+            on_fired=lambda rule: self._root.after(
+                0, lambda r=rule: self._scene_log_append(
+                    f"▶ {r.name or r.image_path.split(chr(47))[-1].split(chr(92))[-1]}"
+                    f" → {'點擊' if r.action == 'click' else '轉珠'}\n"
+                )),
+        )
+        self._btn_scene_start.pack_forget()
+        self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
+        self._scene_log_append("═══ 場景腳本已啟動 ═══\n")
+
+    def _scene_stop(self) -> None:
+        if self._scene_runner:
+            self._scene_runner.stop()
+        self._btn_scene_stop.pack_forget()
+        self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 4))
+
+    def _scene_on_status(self, msg: str) -> None:
+        if msg not in ("掃描中…",):   # suppress noisy idle messages from log
+            self._scene_log_append(msg + "\n")
+
+    def _scene_log_append(self, msg: str) -> None:
+        import time as _t
+        ts = _t.strftime("%H:%M:%S")
+        self._scene_log_txt.config(state=tk.NORMAL)
+        self._scene_log_txt.insert(tk.END, f"[{ts}] {msg}")
+        self._scene_log_txt.see(tk.END)
+        self._scene_log_txt.config(state=tk.DISABLED)
 
     # ── orb callbacks ─────────────────────────────────────────────────────────
 
