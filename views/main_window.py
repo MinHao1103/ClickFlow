@@ -957,6 +957,11 @@ class MainWindow:
             command=self._scene_start)
         self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
 
+        ttk.Button(
+            parent, text="⚙  載入摩靈預設場景", style="Ghost.TButton",
+            command=self._scene_load_tos_preset,
+        ).pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
+
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
             side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
 
@@ -1118,6 +1123,42 @@ class MainWindow:
             self._db.save_scene_rules(self._scene_rules)
         except Exception:
             logger.exception("Failed to save scene rules")
+
+    def _scene_load_tos_preset(self) -> None:
+        import os
+        base = os.path.join("images", "scene")
+        presets = [
+            ("珠盤就緒",  os.path.join(base, "scene_battle_banner.png"),  "orb_solve", 10.0),
+            ("選擇盟友",  os.path.join(base, "scene_ally_header.png"),    "click",      3.0),
+            ("勝利確認",  os.path.join(base, "scene_victory_smiley.png"), "click",      3.0),
+            ("關卡結算",  os.path.join(base, "scene_reward_header.png"),  "click",      3.0),
+        ]
+        missing = [name for name, path, _, _ in presets if not os.path.exists(path)]
+        if missing:
+            messagebox.showwarning("載入預設",
+                f"找不到預設圖片：{', '.join(missing)}\n"
+                "請確認 images/scene/ 目錄存在")
+            return
+        if self._scene_rules:
+            if not messagebox.askyesno("載入預設",
+                    "這會覆蓋現有規則，確定要繼續嗎？"):
+                return
+        self._scene_rules = [
+            SceneRule(
+                image_path=path,
+                action=action,
+                name=name,
+                confidence=0.8,
+                cooldown=cooldown,
+                enabled=True,
+                order_idx=i,
+            )
+            for i, (name, path, action, cooldown) in enumerate(presets)
+        ]
+        self._scene_sel = None
+        self._scene_refresh_list()
+        self._scene_save()
+        self._scene_log_append("已載入摩靈傳說預設場景（4 條規則）\n")
 
     # ── runner control ────────────────────────────────────────────────────────
 
