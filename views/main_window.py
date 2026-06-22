@@ -1680,23 +1680,27 @@ class MainWindow:
         return cfg
 
     @staticmethod
-    def _offset_step(step: "ClickStep", dx: int, dy: int) -> "ClickStep":
-        """Return a copy of step with (dx, dy) added to its screen coordinates."""
-        if dx == 0 and dy == 0:
+    def _transform_step(step: "ClickStep",
+                        ref_x: int, ref_y: int,
+                        cur_x: int, cur_y: int,
+                        sx: float, sy: float) -> "ClickStep":
+        """Return a copy of step with position + scale transform applied.
+        Formula: new = cur_win_origin + (coord - ref_origin) * scale"""
+        if cur_x == ref_x and cur_y == ref_y and sx == 1.0 and sy == 1.0:
             return step
         import copy, json as _json
         s = copy.copy(step)
         if step.action_type in ("click", "double_click", "right_click", "move"):
-            s.x = step.x + dx
-            s.y = step.y + dy
+            s.x = round(cur_x + (step.x - ref_x) * sx)
+            s.y = round(cur_y + (step.y - ref_y) * sy)
         elif step.action_type == "drag":
-            s.x = step.x + dx
-            s.y = step.y + dy
+            s.x = round(cur_x + (step.x - ref_x) * sx)
+            s.y = round(cur_y + (step.y - ref_y) * sy)
             if step.extra_json:
                 try:
                     extra = _json.loads(step.extra_json)
-                    extra["to_x"] = extra.get("to_x", 0) + dx
-                    extra["to_y"] = extra.get("to_y", 0) + dy
+                    extra["to_x"] = round(cur_x + (extra.get("to_x", 0) - ref_x) * sx)
+                    extra["to_y"] = round(cur_y + (extra.get("to_y", 0) - ref_y) * sy)
                     s.extra_json = _json.dumps(extra)
                 except Exception:
                     pass
@@ -1920,9 +1924,15 @@ class MainWindow:
                 self._btn_record_start.config(state=tk.NORMAL)
                 self._set_status("就緒", "idle")
                 return
-            dx, dy = self._get_window_offset(self._tab1_win)
-            if dx != 0 or dy != 0:
-                steps = [self._offset_step(s, dx, dy) for s in steps]
+            from services.window_manager import get_window_rect
+            rect = get_window_rect(self._resolve_bound_window(self._tab1_win))
+            if rect:
+                ref_x, ref_y = self._tab1_win["ref"]
+                ref_size = self._tab1_win.get("ref_size")
+                sx = rect[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
+                sy = rect[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
+                steps = [self._transform_step(s, ref_x, ref_y, rect[0], rect[1], sx, sy)
+                         for s in steps]
         self._executor.start(steps, rounds)
         self._show_mini()
 
