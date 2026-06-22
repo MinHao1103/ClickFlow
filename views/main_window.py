@@ -649,23 +649,26 @@ class MainWindow:
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
 
-        def _row(label, var, default):
-            r = tk.Frame(parent, bg=_C["bg"])
-            r.pack(fill=tk.X, padx=PX, pady=2)
-            tk.Label(r, text=label, bg=_C["bg"], fg=_C["text_muted"],
-                     font=("Segoe UI", 9), width=8, anchor=tk.W).pack(side=tk.LEFT)
+        # Two-column parameter grid
+        grid = tk.Frame(parent, bg=_C["bg"])
+        grid.pack(fill=tk.X, padx=PX, pady=2)
+
+        def _cell(row, col, label, default):
+            tk.Label(grid, text=label, bg=_C["bg"], fg=_C["text_muted"],
+                     font=("Segoe UI", 9), anchor=tk.W).grid(
+                row=row, column=col * 2, padx=(0, 3), pady=3, sticky=tk.W)
             v = tk.StringVar(value=str(default))
-            e = self._numeric_entry(r, v, width=6)
-            e.pack(side=tk.LEFT, padx=(4, 0))
+            e = self._numeric_entry(grid, v, width=5)
+            e.grid(row=row, column=col * 2 + 1, padx=(0, 12), pady=3, sticky=tk.W)
             return v
 
-        self._orb_var_rows     = _row("列數",     None, 5)
-        self._orb_var_cols     = _row("欄數",     None, 6)
-        self._orb_var_speed    = _row("拖曳速度", None, 25)
-        tk.Label(parent, text="ms / 格", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 8)).pack(anchor=tk.W, padx=PX+14)
-        self._orb_var_beam     = _row("求解精度", None, 50)
-        self._orb_var_steps    = _row("最大步數", None, 50)
+        self._orb_var_rows  = _cell(0, 0, "列數",     5)
+        self._orb_var_cols  = _cell(0, 1, "欄數",     6)
+        self._orb_var_speed = _cell(1, 0, "拖曳速度", 25)
+        tk.Label(grid, text="ms/格", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8)).grid(row=1, column=2, padx=(0, 0), pady=3, sticky=tk.W)
+        self._orb_var_beam  = _cell(2, 0, "求解精度", 50)
+        self._orb_var_steps = _cell(2, 1, "最大步數", 50)
 
         # Preset buttons: 標準 / 高精度 — store refs so _orb_set_preset can toggle styles
         preset_row = tk.Frame(parent, bg=_C["bg"])
