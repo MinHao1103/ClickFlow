@@ -21,12 +21,14 @@ logger = logging.getLogger(__name__)
 
 def _app_dir() -> str:
     """Return the directory that contains app data (images/, etc.).
-    When frozen (exe), that's the exe's own directory.
-    When running from source, it's the project root (parent of views/).
+    Both the exe and dev mode use the same dist/ folder so there is
+    only one copy of images on disk.
     """
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # dev: dist/ lives next to the project root
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "dist")
 
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -1183,7 +1185,9 @@ class MainWindow:
         def on_done(path, _lx, _ly):
             if path:
                 self._scene_var_imgpath.set(path)
-        _RegionSelector(self._root, save_dir="images/scene", on_done=on_done)
+        _RegionSelector(self._root,
+                        save_dir=os.path.join(_app_dir(), "images", "scene"),
+                        on_done=on_done)
 
     def _scene_save(self) -> None:
         try:
@@ -1216,7 +1220,7 @@ class MainWindow:
         if missing:
             messagebox.showwarning("載入預設",
                 f"找不到預設圖片：{', '.join(missing)}\n"
-                "請確認 images/scene/ 目錄存在")
+                f"請確認 {os.path.join(_app_dir(), 'images', 'scene')} 目錄存在")
             return
         if self._scene_rules:
             if not messagebox.askyesno("載入預設",
@@ -1354,7 +1358,9 @@ class MainWindow:
             except Exception as exc:
                 self._lbl_orb_status.config(text=f"校準失敗：{exc}", fg=_C["danger"])
 
-        _RegionSelector(self._root, save_dir="images/orb", on_done=on_done)
+        _RegionSelector(self._root,
+                        save_dir=os.path.join(_app_dir(), "images", "orb"),
+                        on_done=on_done)
 
     def _orb_recognize_test(self) -> None:
         if not self._orb_config:
@@ -2414,7 +2420,9 @@ class MainWindow:
                 return
             self._var_img_path.set(path)
             self._update_img_preview(path)
-        _RegionSelector(self._root, save_dir="images", on_done=on_done)
+        _RegionSelector(self._root,
+                        save_dir=os.path.join(_app_dir(), "images"),
+                        on_done=on_done)
 
     def _update_img_preview(self, path: str) -> None:
         try:
