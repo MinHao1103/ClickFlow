@@ -1,12 +1,16 @@
+import ctypes
 import time
 import threading
 import logging
 import pyautogui
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from models.scene_rule import SceneRule
 
 logger = logging.getLogger(__name__)
+
+# (hwnd, (x, y, w, h)) or (None, None)
+WinInfo = Tuple[Optional[int], Optional[Tuple[int, int, int, int]]]
 
 
 class SceneRunner:
@@ -21,16 +25,17 @@ class SceneRunner:
     def start(
         self,
         rules: List[SceneRule],
-        get_orb_config: Callable,                  # () -> OrbConfig | None
-        on_status: Callable[[str], None],           # thread-safe (caller wraps root.after)
+        get_orb_config: Callable,              # () -> OrbConfig | None
+        on_status: Callable[[str], None],       # caller wraps root.after
         on_fired: Callable[[SceneRule], None],
+        get_win_info: Optional[Callable[[], WinInfo]] = None,  # () -> (hwnd, rect) | (None,None)
     ) -> None:
         if self.is_running:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._loop,
-            args=(rules, get_orb_config, on_status, on_fired),
+            args=(rules, get_orb_config, on_status, on_fired, get_win_info),
             daemon=True,
             name="SceneRunner",
         )
@@ -47,8 +52,9 @@ class SceneRunner:
         get_orb_config: Callable,
         on_status: Callable[[str], None],
         on_fired: Callable[[SceneRule], None],
+        get_win_info: Optional[Callable[[], WinInfo]],
     ) -> None:
-        cooldowns: dict[int, float] = {}   # id(rule) → next_allowed_time
+        cooldowns: dict[int, float] = {}
 
         on_status("場景腳本執行中…")
         logger.info("SceneRunner started with %d rules", len(rules))
@@ -60,16 +66,20 @@ class SceneRunner:
                     self._stop_event.wait(0.5)
                     continue
 
+                # Resolve window binding (region for screenshot crop)
+                hwnd, rect = get_win_info() if get_win_info else (None, None)
+                region = rect  # (x, y, w, h) or None → full screen
+
                 now = time.time()
-                screen = pyautogui.screenshot()
                 fired = False
 
                 for rule in active:
                     if cooldowns.get(id(rule), 0) > now:
                         continue
                     try:
-                        loc = pyautogui.locate(
-                            rule.image_path, screen,
+                        loc = pyautogui.locateOnScreen(
+                            rule.image_path,
+                            region=region,
                             confidence=rule.confidence,
                         )
                     except Exception:
@@ -81,6 +91,14 @@ class SceneRunner:
                     cooldowns[id(rule)] = time.time() + rule.cooldown
                     label = rule.name or rule.image_path.split("/")[-1].split("\\")[-1]
                     on_fired(rule)
+
+                    # Bring window to front before acting
+                    if hwnd:
+                        try:
+                            ctypes.windll.user32.SetForegroundWindow(hwnd)
+                            time.sleep(0.12)
+                        except Exception:
+                            pass
 
                     if rule.action == "click":
                         cx, cy = pyautogui.center(loc)
@@ -96,7 +114,7 @@ class SceneRunner:
                             self._do_orb_solve(orb_cfg, on_status)
 
                     fired = True
-                    break   # one rule fires per cycle
+                    break
 
                 if not fired:
                     on_status("掃描中…")
@@ -137,7 +155,6 @@ class SceneRunner:
                 on_error=lambda _e: done_event.set(),
             )
 
-            # Wait for executor to finish, abort if stop requested
             while not done_event.is_set() and not self._stop_event.is_set():
                 time.sleep(0.1)
 

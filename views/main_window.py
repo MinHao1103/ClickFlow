@@ -388,6 +388,7 @@ class MainWindow:
         self._scene_runner: Optional[SceneRunner] = None
         self._scene_sel: Optional[int] = None      # selected rule index
         self._scene_preview_photo = None           # keep PhotoImage alive
+        self._tab3_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
 
         self._apply_styles()
         self._build_window()
@@ -832,6 +833,10 @@ class MainWindow:
     def _build_scene_rules_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
+        # ── Window binding ───────────────────────────────────────────────────
+        self._build_window_picker(parent, self._tab3_win, PX)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
+
         # ── Listbox ─────────────────────────────────────────────────────────
         lb_wrap = tk.Frame(parent, bg=_C["card"],
                            highlightthickness=1, highlightbackground=_C["border"])
@@ -1116,6 +1121,16 @@ class MainWindow:
 
     # ── runner control ────────────────────────────────────────────────────────
 
+    def _scene_get_win_info(self):
+        if not self._tab3_win.get("title"):
+            return None, None
+        hwnd = self._resolve_bound_window(self._tab3_win)
+        if not hwnd:
+            return None, None
+        from services.window_manager import get_window_rect
+        rect = get_window_rect(hwnd)
+        return hwnd, rect   # rect = (x, y, w, h) or None
+
     def _scene_start(self) -> None:
         active = [r for r in self._scene_rules if r.enabled and r.image_path]
         if not active:
@@ -1133,6 +1148,7 @@ class MainWindow:
                     f"▶ {r.name or r.image_path.split(chr(47))[-1].split(chr(92))[-1]}"
                     f" → {'點擊' if r.action == 'click' else '轉珠'}\n"
                 )),
+            get_win_info=self._scene_get_win_info,
         )
         self._btn_scene_start.pack_forget()
         self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
