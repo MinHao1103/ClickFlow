@@ -1165,13 +1165,23 @@ class MainWindow:
 
     def _scene_load_tos_preset(self) -> None:
         base = os.path.join(_app_dir(), "images", "scene")
-        # (name, image, action, confidence, cooldown)
+        # (name, image, action, confidence, cooldown_sec)
+        # Priority order: checked top-to-bottom every 0.5s; first match wins.
         presets = [
-            ("珠盤就緒",  "scene_battle_banner.png",  "orb_solve", 0.75, 10.0),
-            ("斷線重連",  "scene_btn_confirm.png",    "click",     0.85,  5.0),
-            ("選擇盟友",  "scene_ally_header.png",    "click",     0.80,  3.0),
-            ("知道了",    "scene_btn_zhidaole.png",   "click",     0.85,  2.0),
-            ("確定",      "scene_btn_ok.png",         "click",     0.85,  2.0),
+            # ── Battle (highest priority) ─────────────────────────────────────
+            ("珠盤就緒",      "scene_battle_banner.png",   "orb_solve", 0.75, 15.0),
+            # ── Post-battle popups ────────────────────────────────────────────
+            ("斷線重連",      "scene_btn_confirm.png",     "click",     0.85,  8.0),
+            ("知道了",        "scene_btn_zhidaole.png",    "click",     0.85,  2.0),
+            ("確定",          "scene_btn_ok.png",          "click",     0.85,  2.0),
+            # ── Stage entry flow ──────────────────────────────────────────────
+            ("選第一個盟友",  "scene_select_ally.png",     "click",     0.85,  3.0),
+            ("進入NEW關卡",   "scene_enter_battle.png",    "click",     0.85,  5.0),
+            ("點擊NEW地城",   "scene_new_badge.png",       "click",     0.82,  5.0),
+            ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82,  3.0),
+            # ── Hub navigation (lowest priority) ──────────────────────────────
+            ("點冒險地圖",    "scene_btn_adventure.png",   "click",     0.80,  5.0),
+            ("點摩靈按鈕",    "scene_btn_maling.png",      "click",     0.80,  5.0),
         ]
         missing = [n for n, f, *_ in presets
                    if not os.path.exists(os.path.join(base, f))]
@@ -1199,7 +1209,10 @@ class MainWindow:
         self._scene_sel = None
         self._scene_refresh_list()
         self._scene_save()
-        self._scene_log_append("已載入摩靈傳說預設場景（5 條規則）\n")
+        self._scene_log_append(
+            "已載入摩靈傳說預設場景（10 條規則）\n"
+            "提示：第1條「珠盤就緒」需先在 Tab2 轉珠頁面完成珠盤校準\n"
+        )
 
     # ── runner control ────────────────────────────────────────────────────────
 
