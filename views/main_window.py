@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
+import os
+import sys
 import threading
 from typing import List, Optional
 
@@ -15,6 +17,17 @@ from services.mouse_tracker import MouseTracker
 from services.recorder import Recorder
 
 logger = logging.getLogger(__name__)
+
+
+def _app_dir() -> str:
+    """Return the directory that contains app data (images/, etc.).
+    When frozen (exe), that's the exe's own directory.
+    When running from source, it's the project root (parent of views/).
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _C = {
@@ -837,10 +850,105 @@ class MainWindow:
         self._build_window_picker(parent, self._tab3_win, PX)
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
 
-        # ── Listbox ─────────────────────────────────────────────────────────
+        # ── Edit form (TOP) ──────────────────────────────────────────────────
+        form = tk.Frame(parent, bg=_C["bg"])
+        form.pack(fill=tk.X, padx=PX)
+
+        # Name + enabled
+        row0 = tk.Frame(form, bg=_C["bg"])
+        row0.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(row0, text="名稱", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_name = tk.StringVar()
+        ttk.Entry(row0, textvariable=self._scene_var_name,
+                  font=("Segoe UI", 9), width=16).pack(side=tk.LEFT, padx=(0, 8))
+        self._scene_var_enabled = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row0, text="啟用",
+                        variable=self._scene_var_enabled).pack(side=tk.LEFT)
+
+        # Image path + capture buttons
+        row1 = tk.Frame(form, bg=_C["bg"])
+        row1.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(row1, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_imgpath = tk.StringVar()
+        self._scene_var_imgpath.trace_add("write",
+            lambda *_: self._root.after(50, self._scene_update_preview))
+        ttk.Entry(row1, textvariable=self._scene_var_imgpath,
+                  font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(row1, text="瀏覽", style="Ghost.TButton",
+                   command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="框選", style="Ghost.TButton",
+                   command=self._scene_capture).pack(side=tk.LEFT)
+
+        # Image preview — fixed-height frame prevents Label height=N (chars) issue
+        prev_frame = tk.Frame(form, bg=_C["card"], height=72)
+        prev_frame.pack(fill=tk.X, pady=(0, 6))
+        prev_frame.pack_propagate(False)
+        self._scene_preview_lbl = tk.Label(
+            prev_frame, bg=_C["card"],
+            text="（無圖片）", fg=_C["text_muted"], font=("Segoe UI", 8))
+        self._scene_preview_lbl.pack(fill=tk.BOTH, expand=True)
+
+        # Action — two big radio buttons with descriptions
+        tk.Label(form, text="偵測到圖片時，自動執行：",
+                 bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 2))
+
+        self._scene_var_action = tk.StringVar(value="click")
+
+        def _make_action_btn(val, title, desc):
+            f = tk.Frame(form, bg=_C["card"],
+                         highlightthickness=1, highlightbackground=_C["border"])
+            f.pack(fill=tk.X, pady=(0, 3))
+            rb = ttk.Radiobutton(f, text=title,
+                                 variable=self._scene_var_action, value=val)
+            rb.pack(anchor=tk.W, padx=8, pady=(4, 0))
+            tk.Label(f, text=desc, bg=_C["card"], fg=_C["text_muted"],
+                     font=("Segoe UI", 8)).pack(anchor=tk.W, padx=24, pady=(0, 4))
+
+        _make_action_btn("click",     "點擊它",
+                         "自動點擊圖片出現的位置（按鈕、確認框）")
+        _make_action_btn("orb_solve", "啟動轉珠 AI",
+                         "執行自動轉珠（用於戰鬥珠盤場景）")
+
+        # Confidence + cooldown
+        row3 = tk.Frame(form, bg=_C["bg"])
+        row3.pack(fill=tk.X, pady=(4, 6))
+        tk.Label(row3, text="信心度", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_conf = tk.StringVar(value="0.8")
+        self._numeric_entry(row3, self._scene_var_conf, width=5).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Label(row3, text="冷卻", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self._scene_var_cool = tk.StringVar(value="3.0")
+        self._numeric_entry(row3, self._scene_var_cool, width=5).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        ttk.Button(form, text="＋ 套用 / 新增至列表", style="Accent.TButton",
+                   command=self._scene_apply_edit).pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
+
+        # ── Rules list (BOTTOM, expands) ─────────────────────────────────────
+        list_hdr = tk.Frame(parent, bg=_C["bg"])
+        list_hdr.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        tk.Label(list_hdr, text="規則列表（由上往下依序偵測）",
+                 bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side=tk.LEFT)
+        btn_row = tk.Frame(list_hdr, bg=_C["bg"])
+        btn_row.pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="↑", style="Ghost.TButton", width=3,
+                   command=self._scene_move_up).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(btn_row, text="↓", style="Ghost.TButton", width=3,
+                   command=self._scene_move_down).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="✕ 刪除", style="GhostDanger.TButton",
+                   command=self._scene_delete).pack(side=tk.LEFT)
+
         lb_wrap = tk.Frame(parent, bg=_C["card"],
                            highlightthickness=1, highlightbackground=_C["border"])
-        lb_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(6, 4))
+        lb_wrap.pack(fill=tk.BOTH, expand=True, padx=PX, pady=(0, 8))
 
         sb = tk.Scrollbar(lb_wrap, orient=tk.VERTICAL, bg=_C["bg_dark"],
                           troughcolor=_C["bg"], activebackground=_C["accent"])
@@ -857,88 +965,6 @@ class MainWindow:
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         self._scene_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._scene_lb.bind("<<ListboxSelect>>", self._scene_on_select)
-
-        # ── Button row ──────────────────────────────────────────────────────
-        btn_row = tk.Frame(parent, bg=_C["bg"])
-        btn_row.pack(fill=tk.X, padx=PX, pady=(0, 6))
-        ttk.Button(btn_row, text="＋ 新增", style="Ghost.TButton",
-                   command=self._scene_add).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(btn_row, text="✕ 刪除", style="GhostDanger.TButton",
-                   command=self._scene_delete).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(btn_row, text="↑", style="Ghost.TButton", width=3,
-                   command=self._scene_move_up).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(btn_row, text="↓", style="Ghost.TButton", width=3,
-                   command=self._scene_move_down).pack(side=tk.LEFT)
-
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 8))
-
-        # ── Edit form ────────────────────────────────────────────────────────
-        form = tk.Frame(parent, bg=_C["bg"])
-        form.pack(fill=tk.X, padx=PX)
-
-        # Name + enabled
-        row0 = tk.Frame(form, bg=_C["bg"])
-        row0.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(row0, text="名稱", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self._scene_var_name = tk.StringVar()
-        ttk.Entry(row0, textvariable=self._scene_var_name,
-                  font=("Segoe UI", 9), width=16).pack(side=tk.LEFT, padx=(0, 8))
-        self._scene_var_enabled = tk.BooleanVar(value=True)
-        ttk.Checkbutton(row0, text="啟用",
-                        variable=self._scene_var_enabled).pack(side=tk.LEFT)
-
-        # Image path
-        row1 = tk.Frame(form, bg=_C["bg"])
-        row1.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(row1, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self._scene_var_imgpath = tk.StringVar()
-        self._scene_var_imgpath.trace_add("write",
-            lambda *_: self._root.after(50, self._scene_update_preview))
-        ttk.Entry(row1, textvariable=self._scene_var_imgpath,
-                  font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="瀏覽", style="Ghost.TButton",
-                   command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(row1, text="框選", style="Ghost.TButton",
-                   command=self._scene_capture).pack(side=tk.LEFT)
-
-        # Image preview — fixed-height frame prevents Label height=N (chars) issue
-        prev_frame = tk.Frame(form, bg=_C["card"], height=80)
-        prev_frame.pack(fill=tk.X, pady=(0, 6))
-        prev_frame.pack_propagate(False)
-        self._scene_preview_lbl = tk.Label(
-            prev_frame, bg=_C["card"],
-            text="（無圖片）", fg=_C["text_muted"], font=("Segoe UI", 8))
-        self._scene_preview_lbl.pack(fill=tk.BOTH, expand=True)
-
-        # Action radio
-        row2 = tk.Frame(form, bg=_C["bg"])
-        row2.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(row2, text="動作", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 8))
-        self._scene_var_action = tk.StringVar(value="click")
-        ttk.Radiobutton(row2, text="點擊", variable=self._scene_var_action,
-                        value="click").pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Radiobutton(row2, text="轉珠", variable=self._scene_var_action,
-                        value="orb_solve").pack(side=tk.LEFT)
-
-        # Confidence + cooldown
-        row3 = tk.Frame(form, bg=_C["bg"])
-        row3.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(row3, text="信心度", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self._scene_var_conf = tk.StringVar(value="0.8")
-        self._numeric_entry(row3, self._scene_var_conf, width=5).pack(side=tk.LEFT, padx=(0, 12))
-        tk.Label(row3, text="冷卻", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
-        self._scene_var_cool = tk.StringVar(value="3.0")
-        self._numeric_entry(row3, self._scene_var_cool, width=5).pack(side=tk.LEFT, padx=(0, 4))
-        tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-
-        ttk.Button(form, text="套用", style="Accent.TButton",
-                   command=self._scene_apply_edit).pack(fill=tk.X, pady=(0, 4))
 
     # ── right: log + start/stop ───────────────────────────────────────────────
 
@@ -1081,26 +1107,39 @@ class MainWindow:
         self._scene_save()
 
     def _scene_apply_edit(self) -> None:
-        if self._scene_sel is None:
-            return
-        idx = self._scene_sel
-        if idx >= len(self._scene_rules):
-            return
-        r = self._scene_rules[idx]
-        r.name       = self._scene_var_name.get().strip()
-        r.image_path = self._scene_var_imgpath.get().strip()
-        r.action     = self._scene_var_action.get()
-        r.enabled    = self._scene_var_enabled.get()
+        name     = self._scene_var_name.get().strip()
+        imgpath  = self._scene_var_imgpath.get().strip()
+        action   = self._scene_var_action.get()
+        enabled  = self._scene_var_enabled.get()
         try:
-            r.confidence = float(self._scene_var_conf.get() or 0.8)
+            conf = float(self._scene_var_conf.get() or 0.8)
         except ValueError:
-            r.confidence = 0.8
+            conf = 0.8
         try:
-            r.cooldown = float(self._scene_var_cool.get() or 3.0)
+            cool = float(self._scene_var_cool.get() or 3.0)
         except ValueError:
-            r.cooldown = 3.0
+            cool = 3.0
+
+        if self._scene_sel is not None and self._scene_sel < len(self._scene_rules):
+            # Update existing selected rule
+            r = self._scene_rules[self._scene_sel]
+            r.name = name; r.image_path = imgpath; r.action = action
+            r.enabled = enabled; r.confidence = conf; r.cooldown = cool
+            idx = self._scene_sel
+        else:
+            # No selection → append as new rule
+            r = SceneRule(
+                image_path=imgpath, action=action, name=name or "新規則",
+                confidence=conf, cooldown=cool, enabled=enabled,
+                order_idx=len(self._scene_rules),
+            )
+            self._scene_rules.append(r)
+            idx = len(self._scene_rules) - 1
+            self._scene_sel = idx
+
         self._scene_refresh_list()
         self._scene_lb.selection_set(idx)
+        self._scene_lb.see(idx)
         self._scene_save()
 
     def _scene_browse(self) -> None:
@@ -1125,8 +1164,7 @@ class MainWindow:
             logger.exception("Failed to save scene rules")
 
     def _scene_load_tos_preset(self) -> None:
-        import os
-        base = os.path.join("images", "scene")
+        base = os.path.join(_app_dir(), "images", "scene")
         # (name, image, action, confidence, cooldown)
         presets = [
             ("珠盤就緒",  "scene_battle_banner.png",  "orb_solve", 0.75, 10.0),
@@ -1193,6 +1231,7 @@ class MainWindow:
                     f" → {'點擊' if r.action == 'click' else '轉珠'}\n"
                 )),
             get_win_info=self._scene_get_win_info,
+            base_dir=_app_dir(),
         )
         self._btn_scene_start.pack_forget()
         self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))

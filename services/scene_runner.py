@@ -1,4 +1,5 @@
 import ctypes
+import os
 import time
 import threading
 import logging
@@ -29,13 +30,14 @@ class SceneRunner:
         on_status: Callable[[str], None],       # caller wraps root.after
         on_fired: Callable[[SceneRule], None],
         get_win_info: Optional[Callable[[], WinInfo]] = None,  # () -> (hwnd, rect) | (None,None)
+        base_dir: str = "",                    # resolve relative image paths against this dir
     ) -> None:
         if self.is_running:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._loop,
-            args=(rules, get_orb_config, on_status, on_fired, get_win_info),
+            args=(rules, get_orb_config, on_status, on_fired, get_win_info, base_dir),
             daemon=True,
             name="SceneRunner",
         )
@@ -53,6 +55,7 @@ class SceneRunner:
         on_status: Callable[[str], None],
         on_fired: Callable[[SceneRule], None],
         get_win_info: Optional[Callable[[], WinInfo]],
+        base_dir: str,
     ) -> None:
         cooldowns: dict[int, float] = {}
 
@@ -76,9 +79,12 @@ class SceneRunner:
                 for rule in active:
                     if cooldowns.get(id(rule), 0) > now:
                         continue
+                    img_path = rule.image_path
+                    if base_dir and not os.path.isabs(img_path):
+                        img_path = os.path.join(base_dir, img_path)
                     try:
                         loc = pyautogui.locateOnScreen(
-                            rule.image_path,
+                            img_path,
                             region=region,
                             confidence=rule.confidence,
                         )
