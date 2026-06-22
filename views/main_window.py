@@ -810,6 +810,15 @@ class MainWindow:
                 )
                 self._orb_board_img = path
                 self._orb_show_preview_image(path)
+                # Sync ref to window position at calibration time so offset is
+                # computed relative to where the window actually was when we captured.
+                if self._tab2_win.get("title"):
+                    hwnd = self._resolve_bound_window(self._tab2_win)
+                    if hwnd:
+                        from services.window_manager import get_window_rect
+                        rect = get_window_rect(hwnd)
+                        if rect:
+                            self._tab2_win["ref"] = (rect[0], rect[1])
                 self._lbl_orb_status.config(
                     text=f"已校準：{rows}×{cols}，格子 {cell_w}×{cell_h}px  原點({bx},{by})",
                     fg=_C["success"])
