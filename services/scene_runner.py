@@ -147,13 +147,20 @@ class SceneRunner:
     # ── battle detection ──────────────────────────────────────────────────────
 
     def _board_is_active(self, orb_cfg) -> bool:
-        """Return True when the calibrated board area shows ≥50% coloured orbs."""
+        """Return True only when board shows ≥50% filled cells AND ≥3 distinct orb colours.
+        A monochrome background (map/lobby) fails the colour-diversity check."""
         try:
             from services.orb_board import OrbBoard, EMPTY
             board = OrbBoard(orb_cfg).snapshot()
             total = orb_cfg.rows * orb_cfg.cols
-            non_empty = sum(1 for row in board for cell in row if cell != EMPTY)
-            return non_empty >= total // 2
+            colours: set = set()
+            non_empty = 0
+            for row in board:
+                for cell in row:
+                    if cell != EMPTY:
+                        non_empty += 1
+                        colours.add(cell)
+            return non_empty >= total // 2 and len(colours) >= 3
         except Exception:
             return False
 
