@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-A **Python Desktop Automation Script Engine** — a commercial-grade GUI tool for recording and replaying mouse/keyboard sequences, with a second mode for game orb-solving (摩靈 / Tower of Saviors style). Windows 10/11 only (uses `ctypes.windll` in `keyboard_monitor.py`).
+A **Python Desktop Automation Script Engine** — a commercial-grade GUI tool for recording and replaying mouse/keyboard sequences, with additional modes for game orb-solving and overnight scene automation (摩靈 / Tower of Saviors). Windows 10/11 only (uses `ctypes.windll` in `keyboard_monitor.py`).
 
-The app has **two independent functional modes** selectable via tabs in the main window:
+The app has **three independent functional modes** selectable via tabs in the main window:
 - **Tab 1 — 自動化**: record/replay step sequences (the original ClickFlow feature set)
 - **Tab 2 — 🔮 轉珠**: real-time screenshot → colour recognition → Beam Search path → mouse drag
+- **Tab 3 — 場景腳本**: rule-based automation; polls screen every 0.5 s for template matches and executes the first matching rule (click or orb_solve)
 
 ## Common Commands
 
@@ -17,6 +18,8 @@ pip install -r requirements.txt
 python main.py
 pyinstaller ClickFlow.spec   # preferred — spec has complete hiddenimports list
 ```
+
+After every code change: rebuild `dist/ClickFlow.exe` with PyInstaller and push.
 
 Logs are written to `logs/app.log` (created automatically).  
 Database is `clicker.db` (created automatically on first run).
@@ -29,6 +32,7 @@ models/               pure dataclasses, no logic
   click_step.py       ClickStep — in-memory step; has display_label() for listbox
   profile.py          Profile — DB record mirror
   orb_config.py       OrbConfig — orb-solver calibration settings (board origin, cell size, etc.)
+  scene_rule.py       SceneRule — one rule row; action="click"|"orb_solve"; click_dx/click_dy offsets
 services/             all business logic, never import from views/
   database_manager.py SQLite CRUD; uses contextmanager for connections
   click_executor.py   worker thread; ExecutionState dataclass lives here too
@@ -38,11 +42,12 @@ services/             all business logic, never import from views/
   orb_board.py        screenshot → Board (2D OrbType array); colour recognition via HSV
   orb_solver.py       Beam Search solver; returns List[(row,col)] path maximising combos
   orb_executor.py     converts path to mouseDown/moveTo/mouseUp drag sequence
+  scene_runner.py     SceneRunner daemon thread — 0.5 s poll loop for Tab 3
   window_manager.py   Win32 helpers: list_windows(), get_window_rect(), is_window_valid()
 views/
   main_window.py      entire UI; _C palette dict + ttk.Style("clam")
                       module-level: _Mini, _MiniRecorder, _Tip, _RegionSelector helper classes
-                      two-tab layout: Tab1=自動化, Tab2=🔮轉珠
+                      three-tab layout: Tab1=自動化, Tab2=🔮轉珠, Tab3=場景腳本
   orb_calibrate.py    Toplevel for board area selection, grid preview, colour-recognition test
 ```
 
@@ -59,8 +64,9 @@ views/
 | MouseTracker | `MouseTracker` | `self._running = False` |
 | KeyboardMonitor | `KeyboardMonitor` | `self._running = False` |
 | OrbExecutor | `OrbExecutor` | `threading.Event` (`_stop_event`); always calls `mouseUp()` on abort |
+| SceneRunner | `SceneRunner` | `threading.Event` (`_stop_event`) |
 
-`ClickExecutor._interruptible_sleep` loops in 50ms ticks so the stop event is responsive mid-delay. All three background threads are daemon threads.
+`ClickExecutor._interruptible_sleep` loops in 50ms ticks so the stop event is responsive mid-delay. All background threads are daemon threads.
 
 `KeyboardMonitor` fires callbacks on **rising edge only** (prev=False → now=True), preventing repeated triggers while key is held:
 - Space → `on_stop()`
@@ -81,6 +87,8 @@ self._root.after(0, self._some_method)
 ```
 
 **UI build order**: `_build_status_bar()` is packed with `side=tk.BOTTOM` *before* the mid panel is built, so it claims fixed bottom space before the expandable center takes the rest. The same pattern applies inside `_build_execution_panel`: the "載入/刪除" action button row is packed with `side=tk.BOTTOM` *before* the expandable profile listbox, guaranteeing the buttons are always visible.
+
+**Toggle button pattern** (Tab 3 start/stop): a single `_btn_scene_run` widget uses `.config(text=, style=, command=)` to toggle between Start and Stop states. Never use `pack_forget()` + re-`pack()` for side=BOTTOM buttons — re-packing inserts the widget at the END of the slave list, which places it ABOVE other side=BOTTOM items (wrong position).
 
 **Step list empty state**: uses two sibling frames (`_frame_empty` / `_frame_list`) in the same wrapper; `pack_forget()` / `pack()` toggle between them in `_refresh_list()`.
 
@@ -140,14 +148,56 @@ Action types: `click`, `double_click`, `right_click`, `move`, `delay`, `keyboard
 
 `image_click` uses `extra_json`: `{"path": str, "confidence": float, "timeout": float}`.
 
-Reserved for future extension via `extra_json`: `OCR`, conditional logic, random delay.
-
 ```sql
+-- scene automation (Tab 3)
+scene_rules (id, order_idx, name, image_path, action, confidence,
+             cooldown, enabled, click_dx, click_dy, created_at)
 -- orb solver calibration (Tab 2)
 orb_configs (id, name UNIQUE, board_x, board_y, cell_w, cell_h,
              rows, cols, drag_speed_ms, beam_width, max_steps,
              created_at, updated_at)
 ```
+
+`DatabaseManager._initialize()` runs an ALTER TABLE migration on startup to add `click_dx`/`click_dy` to `scene_rules` if the DB predates those columns.
+
+## Scene Script Pipeline (Tab 3)
+
+**Data flow every 0.5 s**:
+```
+SceneRunner._loop()
+  for rule in active (ordered by priority):
+    if rule.action == "orb_solve":
+        _board_is_active() → OrbBoard.snapshot() → HSV analysis
+        ≥50% filled AND ≥3 distinct colours → trigger orb solve
+    else:  # "click"
+        pyautogui.locateOnScreen(rule.image_path, confidence=rule.confidence)
+        if found: SetForegroundWindow → click(cx + click_dx, cy + click_dy)
+    first match wins → apply cooldown → break
+```
+
+**`SceneRule.click_dx / click_dy`**: pixel offset from template centre to actual click target. Used when the template covers only part of the clickable area — e.g.:
+- `scene_new_badge.png` (82×50 px) covers only the top-left of the dungeon circle: `click_dx=56, click_dy=77` → circle centre
+- `scene_stage_new.png` (76×39 px) captures the red NEW text in the stage-list popup: `click_dx=256, click_dy=3` → 進入冒險 button for that row
+
+**`_board_is_active()` guard**: requires `non_empty >= total // 2 AND len(colours) >= 3`. The colour-diversity check prevents false-positive orb-solve triggers when the game shows a monochrome map background that the HSV recogniser classifies as LIGHT/FIRE orbs.
+
+**Preset templates** live in `dist/images/scene/` (shipped alongside the exe, not embedded). `_app_dir()` resolves paths relative to the exe when frozen, relative to the project root when running from source. The current 摩靈 preset (11 rules, checked top-to-bottom):
+
+| Priority | Rule name | Template | Action | click_dx | click_dy |
+|---|---|---|---|---|---|
+| 1 | 珠盤就緒 | scene_battle_banner.png | orb_solve | — | — |
+| 2 | 斷線重連 | scene_btn_confirm.png | click | 0 | 0 |
+| 3 | 知道了 | scene_btn_zhidaole.png | click | 0 | 0 |
+| 4 | 確定(升級) | scene_btn_ok.png | click | 0 | 0 |
+| 5 | 確定(獎勵) | scene_btn_ok2.png | click | 0 | 0 |
+| 6 | 選第一個盟友 | scene_select_ally.png | click | 0 | 0 |
+| 7 | 進入NEW關卡 | scene_stage_new.png | click | 256 | 3 |
+| 8 | 點擊NEW地城 | scene_new_badge.png | click | 56 | 77 |
+| 9 | 翻下一頁 | scene_btn_nextpage.png | click | 0 | 0 |
+| 10 | 點冒險地圖 | scene_btn_adventure.png | click | 0 | 0 |
+| 11 | 點摩靈按鈕 | scene_btn_maling.png | click | 0 | 0 |
+
+**After any preset change** (confidence, cooldown, offsets, template), the user must click ⚙ 載入摩靈預設場景 in Tab 3 to overwrite the DB. Changes to the hardcoded preset in `views/main_window.py` are NOT auto-applied to an existing `clicker.db`.
 
 ## Recorder Behaviour
 

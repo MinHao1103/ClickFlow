@@ -1204,7 +1204,8 @@ class MainWindow:
             ("確定(獎勵)",    "scene_btn_ok2.png",         "click",     0.82,  2.0,  0,  0),
             # ── Stage entry flow ──────────────────────────────────────────────
             ("選第一個盟友",  "scene_select_ally.png",     "click",     0.85,  3.0,  0,  0),
-            ("進入NEW關卡",   "scene_enter_battle.png",    "click",     0.85,  5.0,  0,  0),
+            # NEW text in stage-list popup → dx+256 reaches 進入冒險 button
+            ("進入NEW關卡",   "scene_stage_new.png",       "click",     0.85,  5.0, 256,  3),
             # Badge is top-left of circle; shift right+56, down+77 to reach circle center
             ("點擊NEW地城",   "scene_new_badge.png",       "click",     0.82,  5.0, 56, 77),
             ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82, 10.0,  0,  0),

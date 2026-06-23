@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS scene_rules (
     confidence REAL    NOT NULL DEFAULT 0.8,
     cooldown   REAL    NOT NULL DEFAULT 3.0,
     enabled    INTEGER NOT NULL DEFAULT 1,
+    click_dx   INTEGER NOT NULL DEFAULT 0,
+    click_dy   INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -79,6 +81,12 @@ class DatabaseManager:
         try:
             with self._connect() as conn:
                 conn.executescript(_DDL)
+                # Migration: add click_dx/click_dy if table was created before this version
+                existing = {r[1] for r in conn.execute("PRAGMA table_info(scene_rules)")}
+                for col, ddl in [("click_dx", "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_dy", "INTEGER NOT NULL DEFAULT 0")]:
+                    if col not in existing:
+                        conn.execute(f"ALTER TABLE scene_rules ADD COLUMN {col} {ddl}")
             logger.info("Database initialized: %s", self._db_path)
         except sqlite3.Error:
             logger.exception("Database initialization failed")
@@ -205,10 +213,12 @@ class DatabaseManager:
                 for i, r in enumerate(rules):
                     conn.execute(
                         """INSERT INTO scene_rules
-                           (order_idx, name, image_path, action, confidence, cooldown, enabled)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                           (order_idx, name, image_path, action, confidence, cooldown, enabled,
+                            click_dx, click_dy)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (i, r.name, r.image_path, r.action,
-                         r.confidence, r.cooldown, int(r.enabled)),
+                         r.confidence, r.cooldown, int(r.enabled),
+                         r.click_dx, r.click_dy),
                     )
             logger.info("Saved %d scene rules", len(rules))
         except sqlite3.Error:
@@ -231,6 +241,8 @@ class DatabaseManager:
                     enabled=bool(r["enabled"]),
                     order_idx=r["order_idx"],
                     db_id=r["id"],
+                    click_dx=r["click_dx"] if "click_dx" in r.keys() else 0,
+                    click_dy=r["click_dy"] if "click_dy" in r.keys() else 0,
                 )
                 for r in rows
             ]
