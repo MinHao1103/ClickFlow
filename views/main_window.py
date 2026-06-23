@@ -1207,7 +1207,7 @@ class MainWindow:
             ("進入NEW關卡",   "scene_enter_battle.png",    "click",     0.85,  5.0,  0),
             # Template covers only badge+ring-top; shift down to circle center
             ("點擊NEW地城",   "scene_new_badge.png",       "click",     0.82,  5.0, 92),
-            ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82,  3.0,  0),
+            ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82, 10.0,  0),
             # ── Hub navigation (lowest priority) ──────────────────────────────
             ("點冒險地圖",    "scene_btn_adventure.png",   "click",     0.80,  5.0,  0),
             ("點摩靈按鈕",    "scene_btn_maling.png",      "click",     0.80,  5.0,  0),
