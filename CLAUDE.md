@@ -173,14 +173,25 @@ SceneRunner._loop()
         _do_orb_solve(orb_cfg, board=board)          # reuses snapshot; no 2nd screenshot
         _stop_event.wait(3.0)                        # wait for combo animation
     else:  # "click"
-        pyautogui.locateOnScreen(rule.image_path, confidence=rule.confidence)
-        if found: SetForegroundWindow(hwnd) → sleep 0.15s → click(cx + click_dx, cy + click_dy)
+        has_abs = rule.click_x is not None and rule.click_y is not None
+        if has_abs and not rule.image_path:
+            target = (click_x, click_y)              # pure coordinate, no template check
+        else:
+            loc = locateOnScreen(image_path, confidence)
+            if not found: continue
+            target = (click_x, click_y) if has_abs else (cx + click_dx, cy + click_dy)
+        SetForegroundWindow(hwnd) → sleep 0.15s → click(target)
     first match wins → apply cooldown[rule.db_id] → break
 ```
 
 **`SceneRule.click_dx / click_dy`**: pixel offset from template centre to actual click target. Used when the template covers only part of the clickable area — e.g.:
 - `scene_new_badge.png` (82×50 px) covers only the top-left of the dungeon circle: `click_dx=56, click_dy=77` → circle centre
 - `scene_stage_new.png` (76×39 px) captures the red NEW text in the stage-list popup: `click_dx=256, click_dy=3` → 進入冒險 button for that row
+
+**`SceneRule.click_x / click_y`** (`Optional[int]`, default `None`): absolute screen coordinates that override the derived click target. Three modes:
+- `click_x/y` both `None` → click at `(template_cx + click_dx, template_cy + click_dy)` (original behaviour)
+- `click_x/y` set, `image_path` non-empty → image acts as trigger condition; click at fixed `(click_x, click_y)` regardless of where template was found
+- `click_x/y` set, `image_path` empty → **pure coordinate click**, fires every cycle (no template check); use long cooldown to control rate
 
 **`_board_is_active()` guard**: returns `(bool, board | None)`. Requires `non_empty >= total // 2 AND len(colours) >= 3`. The colour-diversity check prevents false-positive orb-solve triggers when the game shows a monochrome map background. The returned board is passed directly to `_do_orb_solve()` to avoid a second screenshot.
 
@@ -190,21 +201,24 @@ SceneRunner._loop()
 
 **`SetForegroundWindow` delay**: both click and orb_solve paths sleep 0.15 s after focusing the Flash window — Flash Player won't accept mouse events from `pyautogui` without it.
 
-**Preset templates** live in `dist/images/scene/` (shipped alongside the exe, not embedded). `_app_dir()` resolves paths relative to the exe when frozen, relative to the project root when running from source. The current 摩靈 preset (11 rules, checked top-to-bottom):
+**Preset templates** live in `dist/images/scene/` (shipped alongside the exe, not embedded). `_app_dir()` resolves paths relative to the exe when frozen, relative to the project root when running from source. The current 摩靈 preset (12 rules, checked top-to-bottom):
 
 | Priority | Rule name | Template | Action | click_dx | click_dy |
 |---|---|---|---|---|---|
 | 1 | 珠盤就緒 | scene_battle_banner.png | orb_solve | — | — |
 | 2 | 斷線重連 | scene_btn_confirm.png | click | 0 | 0 |
 | 3 | 知道了 | scene_btn_zhidaole.png | click | 0 | 0 |
-| 4 | 確定(升級) | scene_btn_ok.png | click | 0 | 0 |
-| 5 | 確定(獎勵) | scene_btn_ok2.png | click | 0 | 0 |
-| 6 | 選第一個盟友 | scene_select_ally.png | click | 0 | 0 |
-| 7 | 進入NEW關卡 | scene_stage_new.png | click | 256 | 3 |
-| 8 | 點擊NEW地城 | scene_new_badge.png | click | 56 | 77 |
-| 9 | 翻下一頁 | scene_btn_nextpage.png | click | 0 | 0 |
-| 10 | 點冒險地圖 | scene_btn_adventure.png | click | 0 | 0 |
-| 11 | 點摩靈按鈕 | scene_btn_maling.png | click | 0 | 0 |
+| 4 | 知道了(1h提示) | scene_btn_zhidaole_1h.png | click | 0 | 0 |
+| 5 | 確定(升級) | scene_btn_ok.png | click | 0 | 0 |
+| 6 | 確定(獎勵) | scene_btn_ok2.png | click | 0 | 0 |
+| 7 | 選第一個盟友 | scene_select_ally.png | click | 0 | 0 |
+| 8 | 進入NEW關卡 | scene_stage_new.png | click | 256 | 3 |
+| 9 | 點擊NEW地城 | scene_new_badge.png | click | 56 | 77 |
+| 10 | 翻下一頁 | scene_btn_nextpage.png | click | 0 | 0 |
+| 11 | 點冒險地圖 | scene_btn_adventure.png | click | 0 | 0 |
+| 12 | 點摩靈按鈕 | scene_btn_maling.png | click | 0 | 0 |
+
+`scene_btn_zhidaole_1h.png` (157×46 px) — the orange/red-bordered "知道了" button from the hourly online-time notification popup. Separate from `scene_btn_zhidaole.png` which was captured from a different game dialog context.
 
 **After any preset change** (confidence, cooldown, offsets, template), the user must click ⚙ 載入摩靈預設場景 in Tab 3 to overwrite the DB. Changes to the hardcoded preset in `views/main_window.py` are NOT auto-applied to an existing `clicker.db`.
 
