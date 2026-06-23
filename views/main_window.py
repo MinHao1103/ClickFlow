@@ -1335,10 +1335,14 @@ class MainWindow:
                 f"找不到預設圖片：{', '.join(missing)}\n"
                 f"請確認 {os.path.join(_app_dir(), 'images', 'scene')} 目錄存在")
             return
-        if self._scene_rules:
-            if not messagebox.askyesno("載入預設",
-                    "這會覆蓋現有規則，確定要繼續嗎？"):
-                return
+
+        # Always write into the dedicated "摩靈傳說" profile
+        target = "摩靈傳說"
+        existing_profiles = self._db.list_scene_profile_names()
+        if target not in existing_profiles:
+            self._db.create_scene_profile(target)
+
+        self._scene_profile = target
         self._scene_rules = [
             SceneRule(
                 image_path=os.path.join(base, fname),
@@ -1354,10 +1358,11 @@ class MainWindow:
             for i, (name, fname, action, conf, cooldown, click_dx, click_dy) in enumerate(presets)
         ]
         self._scene_sel = None
+        self._scene_refresh_profiles()
         self._scene_refresh_list()
         self._scene_save()
         self._scene_log_append(
-            "已載入摩靈傳說預設場景（10 條規則）\n"
+            f"已載入摩靈傳說預設場景（{len(presets)} 條規則）→ 腳本：{target}\n"
             "提示：第1條「珠盤就緒」需先在 Tab2 轉珠頁面完成珠盤校準\n"
         )
 
