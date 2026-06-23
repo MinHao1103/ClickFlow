@@ -983,17 +983,11 @@ class MainWindow:
     def _build_scene_control_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
-        # ── Start / Stop (bottom-anchored) ──────────────────────────────────
-        self._btn_scene_stop = ttk.Button(
-            parent, text="■  停止場景腳本", style="Stop.TButton",
-            command=self._scene_stop)
-        self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 8))
-        self._btn_scene_stop.pack_forget()
-
-        self._btn_scene_start = ttk.Button(
+        # ── Start / Stop — single toggle button, never repacked ─────────────
+        self._btn_scene_run = ttk.Button(
             parent, text="▶  開始場景腳本", style="Start.TButton",
             command=self._scene_start)
-        self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
+        self._btn_scene_run.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
 
         ttk.Button(
             parent, text="⚙  載入摩靈預設場景", style="Ghost.TButton",
@@ -1278,15 +1272,15 @@ class MainWindow:
             get_win_info=self._scene_get_win_info,
             base_dir=_app_dir(),
         )
-        self._btn_scene_start.pack_forget()
-        self._btn_scene_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
+        self._btn_scene_run.config(
+            text="■  停止場景腳本", style="Stop.TButton", command=self._scene_stop)
         self._scene_log_append("═══ 場景腳本已啟動 ═══\n")
 
     def _scene_stop(self) -> None:
         if self._scene_runner:
             self._scene_runner.stop()
-        self._btn_scene_stop.pack_forget()
-        self._btn_scene_start.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 4))
+        self._btn_scene_run.config(
+            text="▶  開始場景腳本", style="Start.TButton", command=self._scene_start)
 
     def _scene_update_orb_label(self) -> None:
         if self._scene_lbl_orb is None:
