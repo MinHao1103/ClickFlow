@@ -126,7 +126,7 @@ class SceneRunner:
                             pass
 
                     cx, cy = pyautogui.center(loc)
-                    pyautogui.click(cx, cy)
+                    pyautogui.click(cx, cy + rule.click_dy)
                     on_status(f"點擊：{label}")
                     logger.info("SceneRunner click rule=%r loc=%s", label, loc)
                     fired = True

@@ -12,3 +12,4 @@ class SceneRule:
     enabled: bool = True
     order_idx: int = 0
     db_id: Optional[int] = None
+    click_dy: int = 0           # pixel offset added to click Y (shift click below template center)
