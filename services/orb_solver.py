@@ -6,6 +6,11 @@ from services.orb_board import Board, EMPTY
 
 logger = logging.getLogger(__name__)
 
+# Per-solve score cache: board_state_key → combo_count.
+# Cleared at the start of each solve() call. Many beam paths converge to
+# identical board states; caching eliminates redundant score_board() calls.
+_score_cache: dict = {}
+
 
 def _drop(b: Board) -> None:
     """Gravity: orbs fall down to fill empty cells."""
@@ -18,8 +23,7 @@ def _drop(b: Board) -> None:
             b[r][c] = EMPTY if r < empties else filled[r - empties]
 
 
-def score_board(board: Board) -> int:
-    """Count combos that would resolve from this board state."""
+def _score_board_uncached(board: Board) -> int:
     rows = len(board)
     cols = len(board[0])
     total = 0
@@ -55,6 +59,14 @@ def score_board(board: Board) -> int:
             b[r][c] = EMPTY
         _drop(b)
     return total
+
+
+def score_board(board: Board) -> int:
+    """Count combos; results are cached per solve() call by board state."""
+    key = tuple(tuple(row) for row in board)
+    if key not in _score_cache:
+        _score_cache[key] = _score_board_uncached(board)
+    return _score_cache[key]
 
 
 def _move(board: Board, fpos: tuple, tpos: tuple, held: str) -> Board:
@@ -125,13 +137,16 @@ class OrbSolver:
           Pass 2 — 4× wider beam, starts sorted by pass-1 score (best first).
           Pass 3 — 10× wider beam, remaining time.
         """
+        global _score_cache
+        _score_cache = {}
+
         rows = len(board)
         cols = len(board[0]) if board else 6
         base_bw = max(1, self._cfg.beam_width)
         max_steps = max(1, self._cfg.max_steps)
         deadline = time.time() + time_limit
 
-        all_starts = [(r, c) for r in range(rows) for c in range(cols)]
+        all_starts = [(r, c) for r in range(rows) for c in range(cols) if board[r][c] != EMPTY]
         best_score = -1
         best_path: list = []
         start_scores: list[tuple[int, int, int]] = []  # (score, sr, sc)

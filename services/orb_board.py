@@ -23,8 +23,8 @@ EMPTY = "?"
 # separated by 心 being higher-hue magenta (≥152) vs 火 low-hue red (≤12 or ≥170)
 _ORB_HSV = [
     (FIRE,  [(0, 12), (170, 179)]),   # red — wraps around 179→0
-    (LIGHT, [(13, 38)]),              # orange-gold (yellow/gold = 光 in ToS)
-    (WOOD,  [(45, 92)]),              # green
+    (LIGHT, [(13, 44)]),              # orange-gold; extended to 44 to close gap with WOOD
+    (WOOD,  [(44, 92)]),              # green
     (WATER, [(92, 128)]),             # blue
     (DARK,  [(128, 152)]),            # purple/violet
     (HEART, [(152, 170)]),            # pink/magenta

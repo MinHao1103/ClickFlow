@@ -59,6 +59,9 @@ class SceneRunner:
     ) -> None:
         cooldowns: dict[int, float] = {}
 
+        def _rule_key(rule: SceneRule) -> int:
+            return rule.db_id if rule.db_id is not None else rule.order_idx
+
         on_status("場景腳本執行中…")
         logger.info("SceneRunner started with %d rules", len(rules))
 
@@ -77,7 +80,7 @@ class SceneRunner:
                 fired = False
 
                 for rule in active:
-                    if cooldowns.get(id(rule), 0) > now:
+                    if cooldowns.get(_rule_key(rule), 0) > now:
                         continue
 
                     label = rule.name or rule.image_path.split("/")[-1].split("\\")[-1]
@@ -88,9 +91,10 @@ class SceneRunner:
                         orb_cfg = get_orb_config()
                         if orb_cfg is None:
                             continue  # not calibrated — skip silently
-                        if not self._board_is_active(orb_cfg):
+                        active, board_snapshot = self._board_is_active(orb_cfg)
+                        if not active:
                             continue  # board not showing coloured orbs yet
-                        cooldowns[id(rule)] = time.time() + rule.cooldown
+                        cooldowns[_rule_key(rule)] = time.time() + rule.cooldown
                         on_fired(rule)
                         on_status(f"轉珠：{label} — 辨識中…")
                         logger.info("SceneRunner orb_solve triggered by board detection")
@@ -101,7 +105,9 @@ class SceneRunner:
                                 time.sleep(0.15)
                             except Exception:
                                 pass
-                        self._do_orb_solve(orb_cfg, on_status)
+                        self._do_orb_solve(orb_cfg, on_status, board=board_snapshot)
+                        # Wait for combo animation before resuming scan
+                        self._stop_event.wait(3.0)
                         fired = True
                         break
 
@@ -128,7 +134,7 @@ class SceneRunner:
                     if hwnd:
                         try:
                             ctypes.windll.user32.SetForegroundWindow(hwnd)
-                            time.sleep(0.12)
+                            time.sleep(0.15)
                         except Exception:
                             pass
 
@@ -153,9 +159,9 @@ class SceneRunner:
 
     # ── battle detection ──────────────────────────────────────────────────────
 
-    def _board_is_active(self, orb_cfg) -> bool:
-        """Return True only when board shows ≥50% filled cells AND ≥3 distinct orb colours.
-        A monochrome background (map/lobby) fails the colour-diversity check."""
+    def _board_is_active(self, orb_cfg) -> tuple:
+        """Return (True, board) when board shows ≥50% filled cells AND ≥3 distinct orb colours.
+        Returns (False, None) otherwise. Caller reuses the board to avoid a second screenshot."""
         try:
             from services.orb_board import OrbBoard, EMPTY
             board = OrbBoard(orb_cfg).snapshot()
@@ -167,13 +173,15 @@ class SceneRunner:
                     if cell != EMPTY:
                         non_empty += 1
                         colours.add(cell)
-            return non_empty >= total // 2 and len(colours) >= 3
+            if non_empty >= total // 2 and len(colours) >= 3:
+                return True, board
+            return False, None
         except Exception:
-            return False
+            return False, None
 
     # ── orb solve ─────────────────────────────────────────────────────────────
 
-    def _do_orb_solve(self, orb_cfg, on_status: Callable[[str], None]) -> None:
+    def _do_orb_solve(self, orb_cfg, on_status: Callable[[str], None], board=None) -> None:
         from services.orb_board import OrbBoard
         from services.orb_solver import OrbSolver
         from services.orb_executor import OrbExecutor
@@ -182,7 +190,8 @@ class SceneRunner:
         exec_ref: list = [None]
 
         try:
-            board = OrbBoard(orb_cfg).snapshot()
+            if board is None:
+                board = OrbBoard(orb_cfg).snapshot()
             path, predicted = OrbSolver(orb_cfg).solve(board, time_limit=8.0)
 
             if not path:
