@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS scene_rules (
     enabled    INTEGER NOT NULL DEFAULT 1,
     click_dx   INTEGER NOT NULL DEFAULT 0,
     click_dy   INTEGER NOT NULL DEFAULT 0,
+    click_x    INTEGER,
+    click_y    INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -84,7 +86,9 @@ class DatabaseManager:
                 # Migration: add click_dx/click_dy if table was created before this version
                 existing = {r[1] for r in conn.execute("PRAGMA table_info(scene_rules)")}
                 for col, ddl in [("click_dx", "INTEGER NOT NULL DEFAULT 0"),
-                                  ("click_dy", "INTEGER NOT NULL DEFAULT 0")]:
+                                  ("click_dy", "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_x",  "INTEGER"),
+                                  ("click_y",  "INTEGER")]:
                     if col not in existing:
                         conn.execute(f"ALTER TABLE scene_rules ADD COLUMN {col} {ddl}")
             logger.info("Database initialized: %s", self._db_path)
@@ -214,11 +218,11 @@ class DatabaseManager:
                     conn.execute(
                         """INSERT INTO scene_rules
                            (order_idx, name, image_path, action, confidence, cooldown, enabled,
-                            click_dx, click_dy)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            click_dx, click_dy, click_x, click_y)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (i, r.name, r.image_path, r.action,
                          r.confidence, r.cooldown, int(r.enabled),
-                         r.click_dx, r.click_dy),
+                         r.click_dx, r.click_dy, r.click_x, r.click_y),
                     )
             logger.info("Saved %d scene rules", len(rules))
         except sqlite3.Error:
@@ -243,6 +247,8 @@ class DatabaseManager:
                     db_id=r["id"],
                     click_dx=r["click_dx"] if "click_dx" in r.keys() else 0,
                     click_dy=r["click_dy"] if "click_dy" in r.keys() else 0,
+                    click_x=r["click_x"] if "click_x" in r.keys() else None,
+                    click_y=r["click_y"] if "click_y" in r.keys() else None,
                 )
                 for r in rows
             ]

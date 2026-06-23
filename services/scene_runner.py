@@ -111,23 +111,34 @@ class SceneRunner:
                         fired = True
                         break
 
-                    # ── click rules: use template matching ───────────────────
+                    # ── click rules ──────────────────────────────────────────
+                    has_abs = rule.click_x is not None and rule.click_y is not None
                     img_path = rule.image_path
                     if base_dir and not os.path.isabs(img_path):
                         img_path = os.path.join(base_dir, img_path)
-                    try:
-                        loc = pyautogui.locateOnScreen(
-                            img_path,
-                            region=region,
-                            confidence=rule.confidence,
-                        )
-                    except Exception:
-                        loc = None
 
-                    if loc is None:
-                        continue
+                    if has_abs and not img_path:
+                        # Pure coordinate click — no template needed
+                        target_x, target_y = rule.click_x, rule.click_y
+                    else:
+                        # Template matching required as trigger
+                        try:
+                            loc = pyautogui.locateOnScreen(
+                                img_path,
+                                region=region,
+                                confidence=rule.confidence,
+                            )
+                        except Exception:
+                            loc = None
+                        if loc is None:
+                            continue
+                        if has_abs:
+                            target_x, target_y = rule.click_x, rule.click_y
+                        else:
+                            cx, cy = pyautogui.center(loc)
+                            target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
 
-                    cooldowns[id(rule)] = time.time() + rule.cooldown
+                    cooldowns[_rule_key(rule)] = time.time() + rule.cooldown
                     on_fired(rule)
 
                     # Bring window to front before acting
@@ -138,10 +149,9 @@ class SceneRunner:
                         except Exception:
                             pass
 
-                    cx, cy = pyautogui.center(loc)
-                    pyautogui.click(cx + rule.click_dx, cy + rule.click_dy)
-                    on_status(f"點擊：{label}")
-                    logger.info("SceneRunner click rule=%r loc=%s", label, loc)
+                    pyautogui.click(target_x, target_y)
+                    on_status(f"點擊：{label} → ({target_x}, {target_y})")
+                    logger.info("SceneRunner click rule=%r target=(%d,%d)", label, target_x, target_y)
                     fired = True
                     break
 

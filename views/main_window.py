@@ -924,6 +924,22 @@ class MainWindow:
         _make_action_btn("orb_solve", "啟動轉珠 AI",
                          "執行自動轉珠（用於戰鬥珠盤場景）")
 
+        # Fixed click coordinates (optional — overrides template centre)
+        row_xy = tk.Frame(form, bg=_C["bg"])
+        row_xy.pack(fill=tk.X, pady=(4, 0))
+        tk.Label(row_xy, text="固定座標", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(row_xy, text="X", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
+        self._scene_var_click_x = tk.StringVar()
+        self._numeric_entry(row_xy, self._scene_var_click_x, width=6).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(row_xy, text="Y", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
+        self._scene_var_click_y = tk.StringVar()
+        self._numeric_entry(row_xy, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(row_xy, text="（空白 = 使用圖片中心）", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT)
+
         # Confidence + cooldown
         row3 = tk.Frame(form, bg=_C["bg"])
         row3.pack(fill=tk.X, pady=(4, 6))
@@ -1066,6 +1082,8 @@ class MainWindow:
         self._scene_var_conf.set(str(r.confidence))
         self._scene_var_cool.set(str(r.cooldown))
         self._scene_var_enabled.set(r.enabled)
+        self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
+        self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
         self._scene_update_preview()
 
     def _scene_update_preview(self) -> None:
@@ -1144,11 +1162,20 @@ class MainWindow:
         except ValueError:
             cool = 3.0
 
+        try:
+            click_x = int(self._scene_var_click_x.get().strip()) \
+                if self._scene_var_click_x.get().strip() else None
+            click_y = int(self._scene_var_click_y.get().strip()) \
+                if self._scene_var_click_y.get().strip() else None
+        except ValueError:
+            click_x = click_y = None
+
         if self._scene_sel is not None and self._scene_sel < len(self._scene_rules):
             # Update existing selected rule
             r = self._scene_rules[self._scene_sel]
             r.name = name; r.image_path = imgpath; r.action = action
             r.enabled = enabled; r.confidence = conf; r.cooldown = cool
+            r.click_x = click_x; r.click_y = click_y
             idx = self._scene_sel
         else:
             # No selection → append as new rule
@@ -1156,6 +1183,7 @@ class MainWindow:
                 image_path=imgpath, action=action, name=name or "新規則",
                 confidence=conf, cooldown=cool, enabled=enabled,
                 order_idx=len(self._scene_rules),
+                click_x=click_x, click_y=click_y,
             )
             self._scene_rules.append(r)
             idx = len(self._scene_rules) - 1
