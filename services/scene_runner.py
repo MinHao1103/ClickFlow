@@ -94,6 +94,13 @@ class SceneRunner:
                         on_fired(rule)
                         on_status(f"轉珠：{label} — 辨識中…")
                         logger.info("SceneRunner orb_solve triggered by board detection")
+                        # Focus the game window so mouse events are received
+                        if hwnd:
+                            try:
+                                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                                time.sleep(0.15)
+                            except Exception:
+                                pass
                         self._do_orb_solve(orb_cfg, on_status)
                         fired = True
                         break
