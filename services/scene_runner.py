@@ -79,6 +79,26 @@ class SceneRunner:
                 for rule in active:
                     if cooldowns.get(id(rule), 0) > now:
                         continue
+
+                    label = rule.name or rule.image_path.split("/")[-1].split("\\")[-1]
+
+                    if rule.action == "orb_solve":
+                        # Detect battle by checking if the calibrated board has
+                        # coloured orbs — no template needed, works from any state.
+                        orb_cfg = get_orb_config()
+                        if orb_cfg is None:
+                            continue  # not calibrated — skip silently
+                        if not self._board_is_active(orb_cfg):
+                            continue  # board not showing coloured orbs yet
+                        cooldowns[id(rule)] = time.time() + rule.cooldown
+                        on_fired(rule)
+                        on_status(f"轉珠：{label} — 辨識中…")
+                        logger.info("SceneRunner orb_solve triggered by board detection")
+                        self._do_orb_solve(orb_cfg, on_status)
+                        fired = True
+                        break
+
+                    # ── click rules: use template matching ───────────────────
                     img_path = rule.image_path
                     if base_dir and not os.path.isabs(img_path):
                         img_path = os.path.join(base_dir, img_path)
@@ -95,7 +115,6 @@ class SceneRunner:
                         continue
 
                     cooldowns[id(rule)] = time.time() + rule.cooldown
-                    label = rule.name or rule.image_path.split("/")[-1].split("\\")[-1]
                     on_fired(rule)
 
                     # Bring window to front before acting
@@ -106,19 +125,10 @@ class SceneRunner:
                         except Exception:
                             pass
 
-                    if rule.action == "click":
-                        cx, cy = pyautogui.center(loc)
-                        pyautogui.click(cx, cy)
-                        on_status(f"點擊：{label}")
-                        logger.info("SceneRunner click rule=%r loc=%s", label, loc)
-                    elif rule.action == "orb_solve":
-                        orb_cfg = get_orb_config()
-                        if orb_cfg is None:
-                            on_status("轉珠：尚未校準，略過")
-                        else:
-                            on_status(f"轉珠：{label} — 辨識中…")
-                            self._do_orb_solve(orb_cfg, on_status)
-
+                    cx, cy = pyautogui.center(loc)
+                    pyautogui.click(cx, cy)
+                    on_status(f"點擊：{label}")
+                    logger.info("SceneRunner click rule=%r loc=%s", label, loc)
                     fired = True
                     break
 
@@ -133,6 +143,19 @@ class SceneRunner:
 
         on_status("場景腳本已停止")
         logger.info("SceneRunner stopped")
+
+    # ── battle detection ──────────────────────────────────────────────────────
+
+    def _board_is_active(self, orb_cfg) -> bool:
+        """Return True when the calibrated board area shows ≥50% coloured orbs."""
+        try:
+            from services.orb_board import OrbBoard, EMPTY
+            board = OrbBoard(orb_cfg).snapshot()
+            total = orb_cfg.rows * orb_cfg.cols
+            non_empty = sum(1 for row in board for cell in row if cell != EMPTY)
+            return non_empty >= total // 2
+        except Exception:
+            return False
 
     # ── orb solve ─────────────────────────────────────────────────────────────
 
