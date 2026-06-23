@@ -167,19 +167,28 @@ orb_configs (id, name UNIQUE, board_x, board_y, cell_w, cell_h,
 SceneRunner._loop()
   for rule in active (ordered by priority):
     if rule.action == "orb_solve":
-        _board_is_active() → OrbBoard.snapshot() → HSV analysis
+        active, board = _board_is_active(orb_cfg)   # one screenshot; returns board too
         ≥50% filled AND ≥3 distinct colours → trigger orb solve
+        SetForegroundWindow(hwnd) → sleep 0.15s
+        _do_orb_solve(orb_cfg, board=board)          # reuses snapshot; no 2nd screenshot
+        _stop_event.wait(3.0)                        # wait for combo animation
     else:  # "click"
         pyautogui.locateOnScreen(rule.image_path, confidence=rule.confidence)
-        if found: SetForegroundWindow → click(cx + click_dx, cy + click_dy)
-    first match wins → apply cooldown → break
+        if found: SetForegroundWindow(hwnd) → sleep 0.15s → click(cx + click_dx, cy + click_dy)
+    first match wins → apply cooldown[rule.db_id] → break
 ```
 
 **`SceneRule.click_dx / click_dy`**: pixel offset from template centre to actual click target. Used when the template covers only part of the clickable area — e.g.:
 - `scene_new_badge.png` (82×50 px) covers only the top-left of the dungeon circle: `click_dx=56, click_dy=77` → circle centre
 - `scene_stage_new.png` (76×39 px) captures the red NEW text in the stage-list popup: `click_dx=256, click_dy=3` → 進入冒險 button for that row
 
-**`_board_is_active()` guard**: requires `non_empty >= total // 2 AND len(colours) >= 3`. The colour-diversity check prevents false-positive orb-solve triggers when the game shows a monochrome map background that the HSV recogniser classifies as LIGHT/FIRE orbs.
+**`_board_is_active()` guard**: returns `(bool, board | None)`. Requires `non_empty >= total // 2 AND len(colours) >= 3`. The colour-diversity check prevents false-positive orb-solve triggers when the game shows a monochrome map background. The returned board is passed directly to `_do_orb_solve()` to avoid a second screenshot.
+
+**Cooldown key**: `cooldowns[rule.db_id or rule.order_idx]` — uses the stable DB primary key, not `id(rule)`. Using `id()` would silently reset all cooldowns whenever the rule list is rebuilt (e.g. after ⚙ 載入摩靈預設場景).
+
+**Post-solve wait**: after `OrbExecutor` finishes, the loop calls `_stop_event.wait(3.0)` before resuming — gives combo animations time to complete so click rules (確定/知道了) don't misfire during the resolve sequence.
+
+**`SetForegroundWindow` delay**: both click and orb_solve paths sleep 0.15 s after focusing the Flash window — Flash Player won't accept mouse events from `pyautogui` without it.
 
 **Preset templates** live in `dist/images/scene/` (shipped alongside the exe, not embedded). `_app_dir()` resolves paths relative to the exe when frozen, relative to the project root when running from source. The current 摩靈 preset (11 rules, checked top-to-bottom):
 
@@ -224,9 +233,10 @@ OrbBoard.snapshot()          # pyautogui.screenshot → crop → HSV per cell �
     │  Board = list[list[str]]   constants: FIRE/WATER/WOOD/LIGHT/DARK/HEART/EMPTY="?"
     ▼
 OrbSolver.solve(board, time_limit=8.0)   # multi-pass beam search within 8s budget
-    │  Pass 1: base beam_width (from config), all 30 starts — fast baseline
+    │  Pass 1: base beam_width (from config), non-EMPTY starts only — fast baseline
     │  Pass 2: 4× beam_width, sorted by pass-1 score (best starts first)
     │  Pass 3: 10× beam_width, remaining time
+    │  score_board() results cached per call (module-level _score_cache dict)
     │  returns List[Tuple[int,int]]  — (row,col) sequence
     ▼
 OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon thread)
@@ -234,7 +244,9 @@ OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon th
 
 **OrbConfig** (`models/orb_config.py`) stores calibration: `board_x/y`, `cell_w/h`, `rows`, `cols`, `drag_speed_ms`, `beam_width`, `max_steps`. Persisted via `DatabaseManager` to the `orb_configs` table. `board_x/y` are **screen coordinates** — must be re-calibrated any time the Flash Player window moves.
 
-**Colour recognition**: each cell's centre 30–65% crop → HSV → match against `_ORB_HSV` hue ranges via saturation-weighted voting. Cells with no pixels above S>100 threshold → `EMPTY` (`"?"`).
+**Colour recognition**: each cell's centre 30–65% crop → HSV → match against `_ORB_HSV` hue ranges via saturation-weighted voting. Cells with no pixels above S>100 threshold → `EMPTY` (`"?"`). Current ranges (OpenCV H 0–179): FIRE `(0–12, 170–179)`, LIGHT `(13–44)`, WOOD `(44–92)`, WATER `(92–128)`, DARK `(128–152)`, HEART `(152–170)`. LIGHT and WOOD share hue 44 — saturation vote decides; no gap between them.
+
+**score_board cache**: `_score_cache` is a module-level `dict` cleared at the start of each `solve()` call. Many beam paths converge to identical board states; caching avoids redundant combo simulation. Typical solve produces ~65k cache entries; hit rate is high on later passes.
 
 **Flash focus requirement**: `SetForegroundWindow` must be called on the game window before executing orb drags — Flash Player ignores `pyautogui` mouse events when not the foreground window. `SceneRunner` does this for both click rules and orb_solve rules before acting.
 
