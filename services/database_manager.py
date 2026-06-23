@@ -40,8 +40,16 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE INDEX IF NOT EXISTS idx_actions_profile ON actions(profile_id);
 CREATE INDEX IF NOT EXISTS idx_actions_order ON actions(profile_id, order_idx);
 
+CREATE TABLE IF NOT EXISTS scene_profiles (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS scene_rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES scene_profiles(id),
     order_idx  INTEGER NOT NULL DEFAULT 0,
     name       TEXT    NOT NULL DEFAULT '',
     image_path TEXT    NOT NULL,
@@ -83,14 +91,23 @@ class DatabaseManager:
         try:
             with self._connect() as conn:
                 conn.executescript(_DDL)
-                # Migration: add click_dx/click_dy if table was created before this version
+                # Migration: add columns to scene_rules added in later versions
                 existing = {r[1] for r in conn.execute("PRAGMA table_info(scene_rules)")}
-                for col, ddl in [("click_dx", "INTEGER NOT NULL DEFAULT 0"),
-                                  ("click_dy", "INTEGER NOT NULL DEFAULT 0"),
-                                  ("click_x",  "INTEGER"),
-                                  ("click_y",  "INTEGER")]:
+                for col, ddl in [("click_dx",   "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_dy",   "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_x",    "INTEGER"),
+                                  ("click_y",    "INTEGER"),
+                                  ("profile_id", "INTEGER NOT NULL DEFAULT 1")]:
                     if col not in existing:
                         conn.execute(f"ALTER TABLE scene_rules ADD COLUMN {col} {ddl}")
+                # Migration: ensure a default scene profile exists (id=1)
+                row = conn.execute("SELECT id FROM scene_profiles WHERE name = '預設'").fetchone()
+                if row is None:
+                    conn.execute("INSERT OR IGNORE INTO scene_profiles (id, name) VALUES (1, '預設')")
+                # Assign orphaned rules (profile_id=1 but profile 1 may not have existed before)
+                conn.execute(
+                    "UPDATE scene_rules SET profile_id = 1 WHERE profile_id IS NULL OR profile_id = 1"
+                )
             logger.info("Database initialized: %s", self._db_path)
         except sqlite3.Error:
             logger.exception("Database initialization failed")
@@ -208,32 +225,107 @@ class DatabaseManager:
             logger.exception("Failed to list profiles")
             raise
 
-    # ── Scene rules ───────────────────────────────────────────────────────────
+    # ── Scene profiles ────────────────────────────────────────────────────────
 
-    def save_scene_rules(self, rules: List[SceneRule]) -> None:
+    def list_scene_profile_names(self) -> List[str]:
         try:
             with self._connect() as conn:
-                conn.execute("DELETE FROM scene_rules")
+                rows = conn.execute(
+                    "SELECT name FROM scene_profiles ORDER BY id"
+                ).fetchall()
+            return [r["name"] for r in rows]
+        except sqlite3.Error:
+            logger.exception("Failed to list scene profiles")
+            raise
+
+    def create_scene_profile(self, name: str) -> int:
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO scene_profiles (name) VALUES (?)", (name,)
+                )
+                row = conn.execute(
+                    "SELECT id FROM scene_profiles WHERE name = ?", (name,)
+                ).fetchone()
+            logger.info("Created scene profile: %s", name)
+            return row["id"]
+        except sqlite3.Error:
+            logger.exception("Failed to create scene profile: %s", name)
+            raise
+
+    def rename_scene_profile(self, old_name: str, new_name: str) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE scene_profiles SET name = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE name = ?", (new_name, old_name)
+                )
+            logger.info("Renamed scene profile: %s → %s", old_name, new_name)
+        except sqlite3.Error:
+            logger.exception("Failed to rename scene profile")
+            raise
+
+    def delete_scene_profile(self, name: str) -> bool:
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM scene_profiles WHERE name = ?", (name,)
+                ).fetchone()
+                if row is None:
+                    return False
+                conn.execute("DELETE FROM scene_rules WHERE profile_id = ?", (row["id"],))
+                conn.execute("DELETE FROM scene_profiles WHERE id = ?", (row["id"],))
+            logger.info("Deleted scene profile: %s", name)
+            return True
+        except sqlite3.Error:
+            logger.exception("Failed to delete scene profile: %s", name)
+            raise
+
+    def _profile_id(self, conn, profile_name: str) -> int:
+        row = conn.execute(
+            "SELECT id FROM scene_profiles WHERE name = ?", (profile_name,)
+        ).fetchone()
+        if row is None:
+            conn.execute("INSERT INTO scene_profiles (name) VALUES (?)", (profile_name,))
+            row = conn.execute(
+                "SELECT id FROM scene_profiles WHERE name = ?", (profile_name,)
+            ).fetchone()
+        return row["id"]
+
+    # ── Scene rules ───────────────────────────────────────────────────────────
+
+    def save_scene_rules(self, rules: List[SceneRule], profile_name: str = "預設") -> None:
+        try:
+            with self._connect() as conn:
+                pid = self._profile_id(conn, profile_name)
+                conn.execute("DELETE FROM scene_rules WHERE profile_id = ?", (pid,))
                 for i, r in enumerate(rules):
                     conn.execute(
                         """INSERT INTO scene_rules
-                           (order_idx, name, image_path, action, confidence, cooldown, enabled,
+                           (profile_id, order_idx, name, image_path, action,
+                            confidence, cooldown, enabled,
                             click_dx, click_dy, click_x, click_y)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (i, r.name, r.image_path, r.action,
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (pid, i, r.name, r.image_path, r.action,
                          r.confidence, r.cooldown, int(r.enabled),
                          r.click_dx, r.click_dy, r.click_x, r.click_y),
                     )
-            logger.info("Saved %d scene rules", len(rules))
+            logger.info("Saved %d scene rules to profile '%s'", len(rules), profile_name)
         except sqlite3.Error:
             logger.exception("Failed to save scene rules")
             raise
 
-    def load_scene_rules(self) -> List[SceneRule]:
+    def load_scene_rules(self, profile_name: str = "預設") -> List[SceneRule]:
         try:
             with self._connect() as conn:
+                pid_row = conn.execute(
+                    "SELECT id FROM scene_profiles WHERE name = ?", (profile_name,)
+                ).fetchone()
+                if pid_row is None:
+                    return []
                 rows = conn.execute(
-                    "SELECT * FROM scene_rules ORDER BY order_idx"
+                    "SELECT * FROM scene_rules WHERE profile_id = ? ORDER BY order_idx",
+                    (pid_row["id"],)
                 ).fetchall()
             return [
                 SceneRule(

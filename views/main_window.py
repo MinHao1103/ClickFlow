@@ -404,6 +404,7 @@ class MainWindow:
         self._scene_sel: Optional[int] = None      # selected rule index
         self._scene_preview_photo = None           # keep PhotoImage alive
         self._tab3_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
+        self._scene_profile: str = "預設"          # currently loaded profile name
 
         # ── Orb config (shared by Tab 2 and Tab 3, loaded once from DB) ──────
         self._orb_config      = self._db.load_orb_config("default")
@@ -420,7 +421,7 @@ class MainWindow:
         self._refresh_list()          # show empty-state immediately
         self._reload_profile_list()
         try:
-            self._scene_rules = self._db.load_scene_rules()
+            self._scene_rules = self._db.load_scene_rules(self._scene_profile)
         except Exception:
             pass
         self._mouse_tracker.start()
@@ -858,6 +859,25 @@ class MainWindow:
     def _build_scene_rules_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
+        # ── Profile selector ─────────────────────────────────────────────────
+        prof_row = tk.Frame(parent, bg=_C["bg"])
+        prof_row.pack(fill=tk.X, padx=PX, pady=(6, 4))
+        tk.Label(prof_row, text="腳本", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
+        self._scene_prof_var = tk.StringVar(value=self._scene_profile)
+        self._scene_prof_cb = ttk.Combobox(
+            prof_row, textvariable=self._scene_prof_var,
+            state="readonly", font=("Segoe UI", 9), width=16)
+        self._scene_prof_cb.pack(side=tk.LEFT, padx=(0, 6))
+        self._scene_prof_cb.bind("<<ComboboxSelected>>", self._scene_profile_select)
+        ttk.Button(prof_row, text="＋", style="Ghost.TButton", width=3,
+                   command=self._scene_profile_new).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(prof_row, text="✕", style="GhostDanger.TButton", width=3,
+                   command=self._scene_profile_delete).pack(side=tk.LEFT)
+        self._scene_refresh_profiles()
+
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 4))
+
         # ── Window binding ───────────────────────────────────────────────────
         self._build_window_picker(parent, self._tab3_win, PX)
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
@@ -1215,9 +1235,73 @@ class MainWindow:
 
     def _scene_save(self) -> None:
         try:
-            self._db.save_scene_rules(self._scene_rules)
+            self._db.save_scene_rules(self._scene_rules, self._scene_profile)
         except Exception:
             logger.exception("Failed to save scene rules")
+
+    # ── Profile management ────────────────────────────────────────────────────
+
+    def _scene_refresh_profiles(self) -> None:
+        try:
+            names = self._db.list_scene_profile_names()
+        except Exception:
+            names = [self._scene_profile]
+        self._scene_prof_cb["values"] = names
+        if self._scene_profile not in names and names:
+            self._scene_profile = names[0]
+        self._scene_prof_var.set(self._scene_profile)
+
+    def _scene_profile_select(self, _e=None) -> None:
+        name = self._scene_prof_var.get()
+        if name == self._scene_profile:
+            return
+        self._scene_profile = name
+        try:
+            self._scene_rules = self._db.load_scene_rules(name)
+        except Exception:
+            self._scene_rules = []
+        self._scene_sel = None
+        self._scene_refresh_list()
+
+    def _scene_profile_new(self) -> None:
+        from tkinter.simpledialog import askstring
+        name = askstring("新增腳本", "請輸入腳本名稱：", parent=self._root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        try:
+            self._db.create_scene_profile(name)
+        except Exception:
+            messagebox.showerror("錯誤", f"無法建立腳本「{name}」\n（名稱可能已存在）")
+            return
+        self._scene_profile = name
+        self._scene_rules = []
+        self._scene_sel = None
+        self._scene_refresh_profiles()
+        self._scene_refresh_list()
+
+    def _scene_profile_delete(self) -> None:
+        names = self._db.list_scene_profile_names()
+        if len(names) <= 1:
+            messagebox.showwarning("刪除腳本", "至少須保留一個腳本，無法刪除。")
+            return
+        if not messagebox.askyesno("刪除腳本",
+                f"確定要刪除腳本「{self._scene_profile}」及其所有規則嗎？"):
+            return
+        try:
+            self._db.delete_scene_profile(self._scene_profile)
+        except Exception:
+            messagebox.showerror("錯誤", "刪除失敗")
+            return
+        remaining = [n for n in names if n != self._scene_profile]
+        self._scene_profile = remaining[0]
+        try:
+            self._scene_rules = self._db.load_scene_rules(self._scene_profile)
+        except Exception:
+            self._scene_rules = []
+        self._scene_sel = None
+        self._scene_refresh_profiles()
+        self._scene_refresh_list()
 
     def _scene_load_tos_preset(self) -> None:
         base = os.path.join(_app_dir(), "images", "scene")
