@@ -613,22 +613,22 @@ class MainWindow:
         self._tab1_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
         self._tab2_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
 
-        nb = ttk.Notebook(self._root)
-        nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
+        self._nb = ttk.Notebook(self._root)
+        self._nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 4))
 
         # ── Tab 1: 自動化 ──────────────────────────────────────────────────────
-        tab1 = ttk.Frame(nb)
-        nb.add(tab1, text="  🤖  自動化  ")
+        tab1 = ttk.Frame(self._nb)
+        self._nb.add(tab1, text="  🤖  自動化  ")
         self._build_automation_tab(tab1)
 
         # ── Tab 2: 轉珠 ────────────────────────────────────────────────────────
-        tab2 = ttk.Frame(nb)
-        nb.add(tab2, text="  🔮  轉珠  ")
+        tab2 = ttk.Frame(self._nb)
+        self._nb.add(tab2, text="  🔮  轉珠  ")
         self._build_orb_tab(tab2)
 
         # ── Tab 3: 場景腳本 ─────────────────────────────────────────────────
-        tab3 = ttk.Frame(nb)
-        nb.add(tab3, text="  🎮  場景腳本  ")
+        tab3 = ttk.Frame(self._nb)
+        self._nb.add(tab3, text="  🎮  場景腳本  ")
         self._build_scene_tab(tab3)
 
     def _build_automation_tab(self, parent: ttk.Frame) -> None:
@@ -936,8 +936,10 @@ class MainWindow:
         tk.Label(row_xy, text="Y", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
         self._scene_var_click_y = tk.StringVar()
-        self._numeric_entry(row_xy, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(row_xy, text="（空白 = 使用圖片中心）", bg=_C["bg"], fg=_C["text_muted"],
+        self._numeric_entry(row_xy, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(row_xy, text="📍", style="Ghost.TButton", width=3,
+                   command=self._capture_position).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(row_xy, text="← S 鍵", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).pack(side=tk.LEFT)
 
         # Confidence + cooldown
@@ -2440,8 +2442,18 @@ class MainWindow:
         self._root.after(0, self._do_capture)
 
     def _do_capture(self) -> None:
-        self._var_x.set(str(self._var_mx.get()))
-        self._var_y.set(str(self._var_my.get()))
+        x, y = str(self._var_mx.get()), str(self._var_my.get())
+        # Route to whichever tab is active
+        try:
+            tab_idx = self._nb.index(self._nb.select())
+        except Exception:
+            tab_idx = 0
+        if tab_idx == 2:  # Tab 3 — 場景腳本: fill fixed coordinate fields
+            self._scene_var_click_x.set(x)
+            self._scene_var_click_y.set(y)
+        else:             # Tab 1 / Tab 2: fill step coordinate fields
+            self._var_x.set(x)
+            self._var_y.set(y)
 
     def _capture_region(self) -> None:
         def on_done(path, *_):   # ignore coord args — not needed for image_click
