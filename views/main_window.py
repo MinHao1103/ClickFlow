@@ -1191,26 +1191,26 @@ class MainWindow:
 
     def _scene_load_tos_preset(self) -> None:
         base = os.path.join(_app_dir(), "images", "scene")
-        # (name, image, action, confidence, cooldown_sec, click_dy)
+        # (name, image, action, confidence, cooldown_sec, click_dx, click_dy)
         # Priority order: checked top-to-bottom every 0.5s; first match wins.
-        # click_dy: pixel offset added to click Y (positive = down from template center)
+        # click_dx/dy: pixel offset from template center to actual click point
         presets = [
             # ── Battle (highest priority) ─────────────────────────────────────
-            ("珠盤就緒",      "scene_battle_banner.png",   "orb_solve", 0.75, 15.0,  0),
+            ("珠盤就緒",      "scene_battle_banner.png",   "orb_solve", 0.75, 15.0,  0,  0),
             # ── Post-battle popups ────────────────────────────────────────────
-            ("斷線重連",      "scene_btn_confirm.png",     "click",     0.85,  8.0,  0),
-            ("知道了",        "scene_btn_zhidaole.png",    "click",     0.85,  2.0,  0),
-            ("確定(升級)",    "scene_btn_ok.png",          "click",     0.85,  2.0,  0),
-            ("確定(獎勵)",    "scene_btn_ok2.png",         "click",     0.82,  2.0,  0),
+            ("斷線重連",      "scene_btn_confirm.png",     "click",     0.85,  8.0,  0,  0),
+            ("知道了",        "scene_btn_zhidaole.png",    "click",     0.85,  2.0,  0,  0),
+            ("確定(升級)",    "scene_btn_ok.png",          "click",     0.85,  2.0,  0,  0),
+            ("確定(獎勵)",    "scene_btn_ok2.png",         "click",     0.82,  2.0,  0,  0),
             # ── Stage entry flow ──────────────────────────────────────────────
-            ("選第一個盟友",  "scene_select_ally.png",     "click",     0.85,  3.0,  0),
-            ("進入NEW關卡",   "scene_enter_battle.png",    "click",     0.85,  5.0,  0),
-            # Template covers only badge+ring-top; shift down to circle center
-            ("點擊NEW地城",   "scene_new_badge.png",       "click",     0.82,  5.0, 92),
-            ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82, 10.0,  0),
+            ("選第一個盟友",  "scene_select_ally.png",     "click",     0.85,  3.0,  0,  0),
+            ("進入NEW關卡",   "scene_enter_battle.png",    "click",     0.85,  5.0,  0,  0),
+            # Badge is top-left of circle; shift right+56, down+77 to reach circle center
+            ("點擊NEW地城",   "scene_new_badge.png",       "click",     0.82,  5.0, 56, 77),
+            ("翻下一頁",      "scene_btn_nextpage.png",    "click",     0.82, 10.0,  0,  0),
             # ── Hub navigation (lowest priority) ──────────────────────────────
-            ("點冒險地圖",    "scene_btn_adventure.png",   "click",     0.80,  5.0,  0),
-            ("點摩靈按鈕",    "scene_btn_maling.png",      "click",     0.80,  5.0,  0),
+            ("點冒險地圖",    "scene_btn_adventure.png",   "click",     0.80,  5.0,  0,  0),
+            ("點摩靈按鈕",    "scene_btn_maling.png",      "click",     0.80,  5.0,  0,  0),
         ]
         missing = [n for n, f, *_ in presets
                    if not os.path.exists(os.path.join(base, f))]
@@ -1232,9 +1232,10 @@ class MainWindow:
                 cooldown=cooldown,
                 enabled=True,
                 order_idx=i,
+                click_dx=click_dx,
                 click_dy=click_dy,
             )
-            for i, (name, fname, action, conf, cooldown, click_dy) in enumerate(presets)
+            for i, (name, fname, action, conf, cooldown, click_dx, click_dy) in enumerate(presets)
         ]
         self._scene_sel = None
         self._scene_refresh_list()
