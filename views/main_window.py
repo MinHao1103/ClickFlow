@@ -288,9 +288,14 @@ class _Tip:
 
 # ── Region selector overlay ───────────────────────────────────────────────────
 class _RegionSelector:
-    """Full-screen screenshot overlay: user drags to select a region to save as reference image."""
+    """Screenshot overlay for region selection.
 
-    def __init__(self, root: tk.Tk, save_dir: str, on_done: callable) -> None:
+    confine_rect: (x, y, w, h) in logical screen coords — overlay is limited to
+    that window area.  None → full-screen overlay (original behaviour).
+    """
+
+    def __init__(self, root: tk.Tk, save_dir: str, on_done: callable,
+                 confine_rect: tuple | None = None) -> None:
         from PIL import Image, ImageTk
         import pyautogui as _pag
         import os as _os, time as _time
@@ -298,12 +303,21 @@ class _RegionSelector:
         self._on_done  = on_done
         self._save_dir = save_dir
 
-        # Capture full screen BEFORE the overlay appears
-        self._shot = _pag.screenshot()
+        if confine_rect:
+            cx, cy, cw, ch = confine_rect
+            # Capture only the window area
+            self._shot = _pag.screenshot(region=(cx, cy, cw, ch))
+            lw, lh = cw, ch
+            win_geom = f"{cw}x{ch}+{cx}+{cy}"
+        else:
+            cx = cy = 0
+            # Capture full screen BEFORE the overlay appears
+            self._shot = _pag.screenshot()
+            lw = root.winfo_screenwidth()
+            lh = root.winfo_screenheight()
+            win_geom = f"{lw}x{lh}+0+0"
 
-        # Calculate DPI scale (physical px vs logical px)
-        lw = root.winfo_screenwidth()
-        lh = root.winfo_screenheight()
+        # DPI scale: physical px vs logical px
         self._scale_x = self._shot.width  / lw
         self._scale_y = self._shot.height / lh
 
@@ -314,7 +328,7 @@ class _RegionSelector:
         self._win = tk.Toplevel(root)
         self._win.overrideredirect(True)
         self._win.wm_attributes("-topmost", True)
-        self._win.geometry(f"{lw}x{lh}+0+0")
+        self._win.geometry(win_geom)
 
         cv = tk.Canvas(self._win, width=lw, height=lh,
                        cursor="crosshair", highlightthickness=0, bg="black")
@@ -857,8 +871,8 @@ class MainWindow:
         mid = ttk.Frame(parent)
         mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
         mid.rowconfigure(0, weight=1)
-        mid.columnconfigure(0, weight=1, minsize=320)
-        mid.columnconfigure(1, weight=1, minsize=280)
+        mid.columnconfigure(0, weight=3, minsize=340)
+        mid.columnconfigure(1, weight=1, minsize=260)
 
         left = ttk.LabelFrame(mid, text="  規則列表")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
@@ -1023,6 +1037,7 @@ class MainWindow:
             font=("Segoe UI", 9),
             relief="flat", bd=0,
             activestyle="none",
+            height=16,
             yscrollcommand=sb.set,
         )
         sb.config(command=self._scene_lb.yview)
@@ -1238,9 +1253,20 @@ class MainWindow:
         def on_done(path, _lx, _ly):
             if path:
                 self._scene_var_imgpath.set(path)
+
+        confine = None
+        if self._tab3_win.get("title"):
+            hwnd = self._resolve_bound_window(self._tab3_win)
+            if hwnd:
+                from services.window_manager import get_window_rect
+                r = get_window_rect(hwnd)
+                if r:
+                    confine = r  # (x, y, w, h)
+
         _RegionSelector(self._root,
                         save_dir=os.path.join(_app_dir(), "images", "scene"),
-                        on_done=on_done)
+                        on_done=on_done,
+                        confine_rect=confine)
 
     def _scene_save(self) -> None:
         try:
