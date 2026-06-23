@@ -1228,6 +1228,7 @@ class MainWindow:
             # ── Post-battle popups ────────────────────────────────────────────
             ("斷線重連",      "scene_btn_confirm.png",     "click",     0.85,  8.0,  0,  0),
             ("知道了",        "scene_btn_zhidaole.png",    "click",     0.85,  2.0,  0,  0),
+            ("知道了(1h提示)", "scene_btn_zhidaole_1h.png", "click",     0.82,  2.0,  0,  0),
             ("確定(升級)",    "scene_btn_ok.png",          "click",     0.85,  2.0,  0,  0),
             ("確定(獎勵)",    "scene_btn_ok2.png",         "click",     0.82,  2.0,  0,  0),
             # ── Stage entry flow ──────────────────────────────────────────────
