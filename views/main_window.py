@@ -422,6 +422,9 @@ class MainWindow:
         self._reload_profile_list()
         try:
             self._scene_rules = self._db.load_scene_rules(self._scene_profile)
+            if not self._scene_rules:
+                # First run or empty default — populate with 摩靈 preset
+                self._scene_load_tos_preset("預設")
         except Exception:
             pass
         self._mouse_tracker.start()
@@ -1027,11 +1030,6 @@ class MainWindow:
             command=self._scene_start)
         self._btn_scene_run.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
 
-        ttk.Button(
-            parent, text="⚙  載入摩靈預設場景", style="Ghost.TButton",
-            command=self._scene_load_tos_preset,
-        ).pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
-
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
             side=tk.BOTTOM, fill=tk.X, padx=PX, pady=6)
 
@@ -1303,7 +1301,7 @@ class MainWindow:
         self._scene_refresh_profiles()
         self._scene_refresh_list()
 
-    def _scene_load_tos_preset(self) -> None:
+    def _scene_load_tos_preset(self, profile_name: str = "預設") -> None:
         base = os.path.join(_app_dir(), "images", "scene")
         # (name, image, action, confidence, cooldown_sec, click_dx, click_dy)
         # Priority order: checked top-to-bottom every 0.5s; first match wins.
@@ -1336,8 +1334,7 @@ class MainWindow:
                 f"請確認 {os.path.join(_app_dir(), 'images', 'scene')} 目錄存在")
             return
 
-        # Always write into the dedicated "摩靈傳說" profile
-        target = "摩靈傳說"
+        target = profile_name
         existing_profiles = self._db.list_scene_profile_names()
         if target not in existing_profiles:
             self._db.create_scene_profile(target)
@@ -1361,10 +1358,7 @@ class MainWindow:
         self._scene_refresh_profiles()
         self._scene_refresh_list()
         self._scene_save()
-        self._scene_log_append(
-            f"已載入摩靈傳說預設場景（{len(presets)} 條規則）→ 腳本：{target}\n"
-            "提示：第1條「珠盤就緒」需先在 Tab2 轉珠頁面完成珠盤校準\n"
-        )
+        logger.info("Loaded ToS preset (%d rules) into profile '%s'", len(presets), target)
 
     # ── runner control ────────────────────────────────────────────────────────
 
