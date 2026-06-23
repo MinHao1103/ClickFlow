@@ -404,7 +404,7 @@ class MainWindow:
         self._scene_sel: Optional[int] = None      # selected rule index
         self._scene_preview_photo = None           # keep PhotoImage alive
         self._tab3_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
-        self._scene_profile: str = "預設"          # currently loaded profile name
+        self._scene_profile: str = "摩靈傳說"      # currently loaded profile name
 
         # ── Orb config (shared by Tab 2 and Tab 3, loaded once from DB) ──────
         self._orb_config      = self._db.load_orb_config("default")
@@ -424,7 +424,7 @@ class MainWindow:
             self._scene_rules = self._db.load_scene_rules(self._scene_profile)
             if not self._scene_rules:
                 # First run — populate default profile with 摩靈 preset
-                self._scene_load_tos_preset("預設")
+                self._scene_load_tos_preset("摩靈傳說")
             # Ensure the click-only profile also exists on first run
             profiles = self._db.list_scene_profile_names()
             if "按鈕點擊" not in profiles:
@@ -1332,7 +1332,7 @@ class MainWindow:
         ("點摩靈按鈕",    "scene_btn_maling.png",      "click", 0.80,  5.0,  0,   0),
     ]
 
-    def _scene_load_tos_preset(self, profile_name: str = "預設") -> None:
+    def _scene_load_tos_preset(self, profile_name: str = "摩靈傳說") -> None:
         """Load 摩靈轉珠 preset (orb_solve + navigation) into profile_name."""
         presets = [
             ("珠盤就緒", "scene_battle_banner.png", "orb_solve", 0.75, 15.0, 0, 0),

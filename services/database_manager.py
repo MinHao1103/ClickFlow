@@ -100,11 +100,15 @@ class DatabaseManager:
                                   ("profile_id", "INTEGER NOT NULL DEFAULT 1")]:
                     if col not in existing:
                         conn.execute(f"ALTER TABLE scene_rules ADD COLUMN {col} {ddl}")
-                # Migration: ensure a default scene profile exists (id=1)
-                row = conn.execute("SELECT id FROM scene_profiles WHERE name = '預設'").fetchone()
-                if row is None:
-                    conn.execute("INSERT OR IGNORE INTO scene_profiles (id, name) VALUES (1, '預設')")
-                # Assign orphaned rules (profile_id=1 but profile 1 may not have existed before)
+                # Migration: rename legacy '預設' → '摩靈傳說'
+                conn.execute(
+                    "UPDATE scene_profiles SET name = '摩靈傳說' WHERE name = '預設'"
+                )
+                # Migration: ensure the primary scene profile exists (id=1)
+                conn.execute(
+                    "INSERT OR IGNORE INTO scene_profiles (id, name) VALUES (1, '摩靈傳說')"
+                )
+                # Assign orphaned rules to profile id=1
                 conn.execute(
                     "UPDATE scene_rules SET profile_id = 1 WHERE profile_id IS NULL OR profile_id = 1"
                 )
