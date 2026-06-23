@@ -221,17 +221,22 @@ F8 / UI button
     │
     ▼
 OrbBoard.snapshot()          # pyautogui.screenshot → crop → HSV per cell → Board
-    │  Board = list[list[OrbType]]   OrbType: FIRE/WATER/WOOD/LIGHT/DARK/HEART/EMPTY
+    │  Board = list[list[str]]   constants: FIRE/WATER/WOOD/LIGHT/DARK/HEART/EMPTY="?"
     ▼
-OrbSolver.solve(board)       # Beam Search (width=10, max_steps=30)
+OrbSolver.solve(board, time_limit=8.0)   # multi-pass beam search within 8s budget
+    │  Pass 1: base beam_width (from config), all 30 starts — fast baseline
+    │  Pass 2: 4× beam_width, sorted by pass-1 score (best starts first)
+    │  Pass 3: 10× beam_width, remaining time
     │  returns List[Tuple[int,int]]  — (row,col) sequence
     ▼
 OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon thread)
 ```
 
-**OrbConfig** (`models/orb_config.py`) stores calibration: `board_x/y`, `cell_w/h`, `rows`, `cols`, `drag_speed_ms`, `beam_width`, `max_steps`. Persisted via `DatabaseManager` to the `orb_configs` table.
+**OrbConfig** (`models/orb_config.py`) stores calibration: `board_x/y`, `cell_w/h`, `rows`, `cols`, `drag_speed_ms`, `beam_width`, `max_steps`. Persisted via `DatabaseManager` to the `orb_configs` table. `board_x/y` are **screen coordinates** — must be re-calibrated any time the Flash Player window moves.
 
-**Colour recognition**: each cell's centre 60% crop → average HSV → match against `ORB_HSV` hue ranges. Cells with low saturation → `EMPTY`.
+**Colour recognition**: each cell's centre 30–65% crop → HSV → match against `_ORB_HSV` hue ranges via saturation-weighted voting. Cells with no pixels above S>100 threshold → `EMPTY` (`"?"`).
+
+**Flash focus requirement**: `SetForegroundWindow` must be called on the game window before executing orb drags — Flash Player ignores `pyautogui` mouse events when not the foreground window. `SceneRunner` does this for both click rules and orb_solve rules before acting.
 
 **Combo scoring**: simulate gravity-drop loop after placing orb; count total match rounds. 6+ same-colour in one round counts as 2 combos.
 
