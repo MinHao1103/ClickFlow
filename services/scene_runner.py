@@ -60,7 +60,7 @@ class SceneRunner:
         cooldowns: dict[int, float] = {}
 
         def _rule_key(rule: SceneRule) -> int:
-            return rule.db_id if rule.db_id is not None else rule.order_idx
+            return self._rule_key_static(rule)
 
         on_status("場景腳本執行中…")
         logger.info("SceneRunner started with %d rules", len(rules))
@@ -91,9 +91,14 @@ class SceneRunner:
                         orb_cfg = get_orb_config()
                         if orb_cfg is None:
                             continue  # not calibrated — skip silently
-                        active, board_snapshot = self._board_is_active(orb_cfg)
-                        if not active:
+                        is_active, board_snapshot = self._board_is_active(orb_cfg)
+                        if not is_active:
                             continue  # board not showing coloured orbs yet
+
+                        # Pre-solve: clear any lingering popups before dragging
+                        self._flush_click_rules(
+                            rules, cooldowns, region, base_dir, hwnd, on_status, on_fired)
+
                         cooldowns[_rule_key(rule)] = time.time() + rule.cooldown
                         on_fired(rule)
                         on_status(f"轉珠：{label} — 辨識中…")
@@ -106,6 +111,11 @@ class SceneRunner:
                             except Exception:
                                 pass
                         self._do_orb_solve(orb_cfg, on_status, board=board_snapshot)
+
+                        # Post-solve: immediately handle popups that appeared during drag
+                        self._flush_click_rules(
+                            rules, cooldowns, region, base_dir, hwnd, on_status, on_fired)
+
                         # Wait for combo animation before resuming scan
                         self._stop_event.wait(3.0)
                         fired = True
@@ -166,6 +176,61 @@ class SceneRunner:
 
         on_status("場景腳本已停止")
         logger.info("SceneRunner stopped")
+
+    # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
+
+    def _flush_click_rules(self, rules, cooldowns, region, base_dir,
+                           hwnd, on_status, on_fired) -> None:
+        """Scan click-only rules once and fire the first match.
+
+        Called before and after orb_solve to dismiss any dialogs (確定/知道了)
+        that appear while the mouse is being dragged.  Ignores cooldowns so a
+        freshly-triggered dialog is never blocked by a stale timer.
+        """
+        now = time.time()
+        for rule in rules:
+            if not rule.enabled or rule.action != "click":
+                continue
+            has_abs = rule.click_x is not None and rule.click_y is not None
+            img_path = rule.image_path
+            if base_dir and img_path and not os.path.isabs(img_path):
+                img_path = os.path.join(base_dir, img_path)
+
+            if has_abs and not img_path:
+                target_x, target_y = rule.click_x, rule.click_y
+            elif img_path:
+                try:
+                    loc = pyautogui.locateOnScreen(img_path, region=region,
+                                                   confidence=rule.confidence)
+                except Exception:
+                    loc = None
+                if loc is None:
+                    continue
+                if has_abs:
+                    target_x, target_y = rule.click_x, rule.click_y
+                else:
+                    cx, cy = pyautogui.center(loc)
+                    target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
+            else:
+                continue
+
+            label = rule.name or img_path.split("/")[-1].split("\\")[-1]
+            on_fired(rule)
+            if hwnd:
+                try:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.15)
+                except Exception:
+                    pass
+            pyautogui.click(target_x, target_y)
+            cooldowns[self._rule_key_static(rule)] = now + rule.cooldown
+            on_status(f"[彈窗] 點擊：{label} → ({target_x}, {target_y})")
+            logger.info("flush_click_rules: clicked %r at (%d,%d)", label, target_x, target_y)
+            return  # one click per flush pass
+
+    @staticmethod
+    def _rule_key_static(rule) -> int:
+        return rule.db_id if rule.db_id is not None else rule.order_idx
 
     # ── battle detection ──────────────────────────────────────────────────────
 
