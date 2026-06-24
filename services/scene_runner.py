@@ -180,53 +180,62 @@ class SceneRunner:
     # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
 
     def _flush_click_rules(self, rules, cooldowns, region, base_dir,
-                           hwnd, on_status, on_fired) -> None:
-        """Scan click-only rules once and fire the first match.
+                           hwnd, on_status, on_fired, max_passes: int = 12) -> None:
+        """Keep clicking matching click rules until a full pass finds nothing.
 
-        Called before and after orb_solve to dismiss any dialogs (確定/知道了)
-        that appear while the mouse is being dragged.  Ignores cooldowns so a
-        freshly-triggered dialog is never blocked by a stale timer.
+        Called before and after orb_solve to dismiss stacked dialogs
+        (確定 → 知道了 → 確定 → …).  Ignores cooldowns so fresh dialogs are
+        never skipped.  Stops when one full rule-scan finds zero matches, or
+        after max_passes clicks (safety limit against infinite loops).
         """
-        now = time.time()
-        for rule in rules:
-            if not rule.enabled or rule.action != "click":
-                continue
-            has_abs = rule.click_x is not None and rule.click_y is not None
-            img_path = rule.image_path
-            if base_dir and img_path and not os.path.isabs(img_path):
-                img_path = os.path.join(base_dir, img_path)
-
-            if has_abs and not img_path:
-                target_x, target_y = rule.click_x, rule.click_y
-            elif img_path:
-                try:
-                    loc = pyautogui.locateOnScreen(img_path, region=region,
-                                                   confidence=rule.confidence)
-                except Exception:
-                    loc = None
-                if loc is None:
+        for pass_num in range(max_passes):
+            if self._stop_event.is_set():
+                break
+            clicked = False
+            for rule in rules:
+                if not rule.enabled or rule.action != "click":
                     continue
-                if has_abs:
-                    target_x, target_y = rule.click_x, rule.click_y
-                else:
-                    cx, cy = pyautogui.center(loc)
-                    target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
-            else:
-                continue
+                has_abs = rule.click_x is not None and rule.click_y is not None
+                img_path = rule.image_path
+                if base_dir and img_path and not os.path.isabs(img_path):
+                    img_path = os.path.join(base_dir, img_path)
 
-            label = rule.name or img_path.split("/")[-1].split("\\")[-1]
-            on_fired(rule)
-            if hwnd:
-                try:
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
-                    time.sleep(0.15)
-                except Exception:
-                    pass
-            pyautogui.click(target_x, target_y)
-            cooldowns[self._rule_key_static(rule)] = now + rule.cooldown
-            on_status(f"[彈窗] 點擊：{label} → ({target_x}, {target_y})")
-            logger.info("flush_click_rules: clicked %r at (%d,%d)", label, target_x, target_y)
-            return  # one click per flush pass
+                if has_abs and not img_path:
+                    target_x, target_y = rule.click_x, rule.click_y
+                elif img_path:
+                    try:
+                        loc = pyautogui.locateOnScreen(img_path, region=region,
+                                                       confidence=rule.confidence)
+                    except Exception:
+                        loc = None
+                    if loc is None:
+                        continue
+                    if has_abs:
+                        target_x, target_y = rule.click_x, rule.click_y
+                    else:
+                        cx, cy = pyautogui.center(loc)
+                        target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
+                else:
+                    continue
+
+                label = rule.name or img_path.split("/")[-1].split("\\")[-1]
+                on_fired(rule)
+                if hwnd:
+                    try:
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        time.sleep(0.15)
+                    except Exception:
+                        pass
+                pyautogui.click(target_x, target_y)
+                cooldowns[self._rule_key_static(rule)] = time.time() + rule.cooldown
+                on_status(f"[彈窗{pass_num+1}] {label} → ({target_x}, {target_y})")
+                logger.info("flush pass=%d clicked %r at (%d,%d)", pass_num+1, label, target_x, target_y)
+                clicked = True
+                time.sleep(0.4)  # wait for game to process click / show next popup
+                break  # restart rule scan from top after each click
+
+            if not clicked:
+                break  # clean pass — no more popups
 
     @staticmethod
     def _rule_key_static(rule) -> int:
