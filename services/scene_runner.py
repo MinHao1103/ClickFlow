@@ -270,7 +270,7 @@ class SceneRunner:
         try:
             if board is None:
                 board = OrbBoard(orb_cfg).snapshot()
-            path, predicted = OrbSolver(orb_cfg).solve(board, time_limit=8.0)
+            path, predicted = OrbSolver(orb_cfg).solve(board, time_limit=12.0)
 
             if not path:
                 on_status("轉珠：找不到路線")

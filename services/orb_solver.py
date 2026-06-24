@@ -129,15 +129,17 @@ class OrbSolver:
     def __init__(self, config: OrbConfig) -> None:
         self._cfg = config
 
-    def solve(self, board: Board, time_limit: float = 8.0) -> tuple[list[tuple[int, int]], int]:
+    def solve(self, board: Board, time_limit: float = 12.0) -> tuple[list[tuple[int, int]], int]:
         """Multi-pass beam search. Uses time_limit seconds, then returns best found.
 
         Strategy:
-          Pass 1 — beam_width from config, all 30 starts: fast baseline survey.
-          Pass 2 — 4× wider beam, starts sorted by pass-1 score (best first).
-          Pass 3 — 10× wider beam, remaining time.
+          Pass 1 — base beam_width, all non-EMPTY starts: fast baseline survey.
+          Pass 2 — 6×  wider beam, all starts sorted by pass-1 score.
+          Pass 3 — 20× wider beam, top-10 starts only.
+          Pass 4 — 40× wider beam, top-5  starts only (deep refinement).
+        Passes stop early if deadline is reached.
         """
-        _score_cache.clear()    # .clear() keeps the same dict object (fix stale-ref risk)
+        _score_cache.clear()
 
         rows = len(board)
         cols = len(board[0]) if board else 6
@@ -150,7 +152,7 @@ class OrbSolver:
         best_path: list = []
         start_scores: list[tuple[int, int, int]] = []  # (score, sr, sc)
 
-        # ── Pass 1: quick survey ──────────────────────────────────────────
+        # ── Pass 1: quick survey over all starts ─────────────────────────
         for sr, sc in all_starts:
             if time.time() >= deadline:
                 break
@@ -162,21 +164,21 @@ class OrbSolver:
 
         logger.info("Solver pass1: best=%d in %.2fs", best_score, time_limit - (deadline - time.time()))
 
-        # Sort starts by pass-1 score so subsequent passes focus on best first
+        # Sort by pass-1 score — best starts get the deep passes
         start_scores.sort(reverse=True)
 
-        # ── Pass 2 & 3: progressively wider beams, time-bounded ──────────
-        for multiplier in (4, 10):
+        # ── Pass 2-4: wider beams on progressively narrower start sets ────
+        for multiplier, top_n in ((6, len(start_scores)), (20, 10), (40, 5)):
+            if time.time() >= deadline:
+                break
             wider = base_bw * multiplier
-            for _, sr, sc in start_scores:
+            for _, sr, sc in start_scores[:top_n]:
                 if time.time() >= deadline:
                     break
                 s, path = _beam_search(board, sr, sc, wider, max_steps, deadline)
                 if s > best_score:
                     best_score = s
                     best_path = path
-            if time.time() >= deadline:
-                break
 
         predicted = max(best_score, 0)
         elapsed = time_limit - max(deadline - time.time(), 0)
