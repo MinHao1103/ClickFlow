@@ -137,8 +137,7 @@ class OrbSolver:
           Pass 2 — 4× wider beam, starts sorted by pass-1 score (best first).
           Pass 3 — 10× wider beam, remaining time.
         """
-        global _score_cache
-        _score_cache = {}
+        _score_cache.clear()    # .clear() keeps the same dict object (fix stale-ref risk)
 
         rows = len(board)
         cols = len(board[0]) if board else 6

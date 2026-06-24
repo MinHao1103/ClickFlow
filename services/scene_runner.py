@@ -7,6 +7,7 @@ import pyautogui
 from typing import Callable, List, Optional, Tuple
 
 from models.scene_rule import SceneRule
+from services.orb_board import OrbBoard, EMPTY      # top-level import (fix #4)
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,11 @@ class SceneRunner:
     def start(
         self,
         rules: List[SceneRule],
-        get_orb_config: Callable,              # () -> OrbConfig | None
-        on_status: Callable[[str], None],       # caller wraps root.after
+        get_orb_config: Callable,
+        on_status: Callable[[str], None],
         on_fired: Callable[[SceneRule], None],
-        get_win_info: Optional[Callable[[], WinInfo]] = None,  # () -> (hwnd, rect) | (None,None)
-        base_dir: str = "",                    # resolve relative image paths against this dir
+        get_win_info: Optional[Callable[[], WinInfo]] = None,
+        base_dir: str = "",
     ) -> None:
         if self.is_running:
             return
@@ -59,51 +60,62 @@ class SceneRunner:
     ) -> None:
         cooldowns: dict[int, float] = {}
 
-        def _rule_key(rule: SceneRule) -> int:
-            return self._rule_key_static(rule)
-
         on_status("場景腳本執行中…")
         logger.info("SceneRunner started with %d rules", len(rules))
 
+        # Pre-filter enabled rules and resolve image paths once (fix #1 + #2)
+        active = []
+        for r in rules:
+            if not r.enabled or not r.image_path:
+                continue
+            img = r.image_path
+            if base_dir and not os.path.isabs(img):
+                img = os.path.join(base_dir, img)
+            active.append((r, img))
+
+        # Cache hwnd between cycles; refresh only when stale (fix #6)
+        cached_hwnd: Optional[int] = None
+        cached_rect: Optional[tuple] = None
+        hwnd_refresh_at: float = 0.0
+
         while not self._stop_event.is_set():
             try:
-                active = [r for r in rules if r.enabled and r.image_path]
                 if not active:
                     self._stop_event.wait(0.5)
                     continue
 
-                # Resolve window binding (region for screenshot crop)
-                hwnd, rect = get_win_info() if get_win_info else (None, None)
-                region = rect  # (x, y, w, h) or None → full screen
-
+                # Refresh window binding at most once per second
                 now = time.time()
+                if get_win_info and now >= hwnd_refresh_at:
+                    cached_hwnd, cached_rect = get_win_info()
+                    hwnd_refresh_at = now + 1.0
+                hwnd, region = cached_hwnd, cached_rect
+
                 fired = False
 
-                for rule in active:
-                    if cooldowns.get(_rule_key(rule), 0) > now:
+                for rule, img_path in active:
+                    key = self._rule_key_static(rule)
+                    if cooldowns.get(key, 0) > now:
                         continue
 
-                    label = rule.name or rule.image_path.split("/")[-1].split("\\")[-1]
+                    label = rule.name or img_path.split("/")[-1].split("\\")[-1]
 
                     if rule.action == "orb_solve":
-                        # Detect battle by checking if the calibrated board has
-                        # coloured orbs — no template needed, works from any state.
                         orb_cfg = get_orb_config()
                         if orb_cfg is None:
-                            continue  # not calibrated — skip silently
+                            continue
                         is_active, board_snapshot = self._board_is_active(orb_cfg)
                         if not is_active:
-                            continue  # board not showing coloured orbs yet
+                            continue
 
-                        # Pre-solve: clear any lingering popups before dragging
+                        # Pre-solve: clear lingering popups before dragging
                         self._flush_click_rules(
-                            rules, cooldowns, region, base_dir, hwnd, on_status, on_fired)
+                            active, cooldowns, region, hwnd, on_status, on_fired)
 
-                        cooldowns[_rule_key(rule)] = time.time() + rule.cooldown
+                        cooldowns[key] = time.time() + rule.cooldown
                         on_fired(rule)
                         on_status(f"轉珠：{label} — 辨識中…")
-                        logger.info("SceneRunner orb_solve triggered by board detection")
-                        # Focus the game window so mouse events are received
+                        logger.info("SceneRunner orb_solve triggered")
                         if hwnd:
                             try:
                                 ctypes.windll.user32.SetForegroundWindow(hwnd)
@@ -112,53 +124,28 @@ class SceneRunner:
                                 pass
                         self._do_orb_solve(orb_cfg, on_status, board=board_snapshot)
 
-                        # Post-solve: immediately handle popups that appeared during drag
+                        # Post-solve: dismiss popups that appeared during drag
                         self._flush_click_rules(
-                            rules, cooldowns, region, base_dir, hwnd, on_status, on_fired)
+                            active, cooldowns, region, hwnd, on_status, on_fired)
 
-                        # Wait for combo animation before resuming scan
+                        # Wait for combo animation
                         self._stop_event.wait(3.0)
                         fired = True
                         break
 
-                    # ── click rules ──────────────────────────────────────────
-                    has_abs = rule.click_x is not None and rule.click_y is not None
-                    img_path = rule.image_path
-                    if base_dir and not os.path.isabs(img_path):
-                        img_path = os.path.join(base_dir, img_path)
+                    # ── click rule ───────────────────────────────────────────
+                    matched, target_x, target_y = self._try_click_rule(rule, img_path, region)
+                    if not matched:
+                        continue
 
-                    if has_abs and not img_path:
-                        # Pure coordinate click — no template needed
-                        target_x, target_y = rule.click_x, rule.click_y
-                    else:
-                        # Template matching required as trigger
-                        try:
-                            loc = pyautogui.locateOnScreen(
-                                img_path,
-                                region=region,
-                                confidence=rule.confidence,
-                            )
-                        except Exception:
-                            loc = None
-                        if loc is None:
-                            continue
-                        if has_abs:
-                            target_x, target_y = rule.click_x, rule.click_y
-                        else:
-                            cx, cy = pyautogui.center(loc)
-                            target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
-
-                    cooldowns[_rule_key(rule)] = time.time() + rule.cooldown
+                    cooldowns[key] = time.time() + rule.cooldown
                     on_fired(rule)
-
-                    # Bring window to front before acting
                     if hwnd:
                         try:
                             ctypes.windll.user32.SetForegroundWindow(hwnd)
                             time.sleep(0.15)
                         except Exception:
                             pass
-
                     pyautogui.click(target_x, target_y)
                     on_status(f"點擊：{label} → ({target_x}, {target_y})")
                     logger.info("SceneRunner click rule=%r target=(%d,%d)", label, target_x, target_y)
@@ -177,45 +164,54 @@ class SceneRunner:
         on_status("場景腳本已停止")
         logger.info("SceneRunner stopped")
 
+    # ── shared click-rule matcher (fix #3 — single implementation) ───────────
+
+    @staticmethod
+    def _try_click_rule(rule: SceneRule, img_path: str,
+                        region) -> tuple[bool, int, int]:
+        """Try to match a click rule. Returns (matched, target_x, target_y)."""
+        has_abs = rule.click_x is not None and rule.click_y is not None
+
+        if has_abs and not img_path:
+            return True, rule.click_x, rule.click_y
+
+        if not img_path:
+            return False, 0, 0
+
+        try:
+            loc = pyautogui.locateOnScreen(img_path, region=region,
+                                           confidence=rule.confidence)
+        except Exception:
+            return False, 0, 0
+
+        if loc is None:
+            return False, 0, 0
+
+        if has_abs:
+            return True, rule.click_x, rule.click_y
+
+        cx, cy = pyautogui.center(loc)
+        return True, cx + rule.click_dx, cy + rule.click_dy
+
     # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
 
-    def _flush_click_rules(self, rules, cooldowns, region, base_dir,
+    def _flush_click_rules(self, active, cooldowns, region,
                            hwnd, on_status, on_fired, max_passes: int = 12) -> None:
         """Keep clicking matching click rules until a full pass finds nothing.
 
-        Called before and after orb_solve to dismiss stacked dialogs
-        (確定 → 知道了 → 確定 → …).  Ignores cooldowns so fresh dialogs are
-        never skipped.  Stops when one full rule-scan finds zero matches, or
-        after max_passes clicks (safety limit against infinite loops).
+        Handles stacked dialogs (確定 → 知道了 → 確定 → …).
+        Ignores cooldowns so fresh dialogs are never skipped.
+        Safety cap: max_passes clicks before giving up.
         """
         for pass_num in range(max_passes):
             if self._stop_event.is_set():
                 break
             clicked = False
-            for rule in rules:
+            for rule, img_path in active:
                 if not rule.enabled or rule.action != "click":
                     continue
-                has_abs = rule.click_x is not None and rule.click_y is not None
-                img_path = rule.image_path
-                if base_dir and img_path and not os.path.isabs(img_path):
-                    img_path = os.path.join(base_dir, img_path)
-
-                if has_abs and not img_path:
-                    target_x, target_y = rule.click_x, rule.click_y
-                elif img_path:
-                    try:
-                        loc = pyautogui.locateOnScreen(img_path, region=region,
-                                                       confidence=rule.confidence)
-                    except Exception:
-                        loc = None
-                    if loc is None:
-                        continue
-                    if has_abs:
-                        target_x, target_y = rule.click_x, rule.click_y
-                    else:
-                        cx, cy = pyautogui.center(loc)
-                        target_x, target_y = cx + rule.click_dx, cy + rule.click_dy
-                else:
+                matched, target_x, target_y = self._try_click_rule(rule, img_path, region)
+                if not matched:
                     continue
 
                 label = rule.name or img_path.split("/")[-1].split("\\")[-1]
@@ -229,10 +225,11 @@ class SceneRunner:
                 pyautogui.click(target_x, target_y)
                 cooldowns[self._rule_key_static(rule)] = time.time() + rule.cooldown
                 on_status(f"[彈窗{pass_num+1}] {label} → ({target_x}, {target_y})")
-                logger.info("flush pass=%d clicked %r at (%d,%d)", pass_num+1, label, target_x, target_y)
+                logger.info("flush pass=%d clicked %r at (%d,%d)",
+                            pass_num + 1, label, target_x, target_y)
                 clicked = True
-                time.sleep(0.4)  # wait for game to process click / show next popup
-                break  # restart rule scan from top after each click
+                time.sleep(0.4)
+                break  # restart from rule[0] after each click
 
             if not clicked:
                 break  # clean pass — no more popups
@@ -244,10 +241,8 @@ class SceneRunner:
     # ── battle detection ──────────────────────────────────────────────────────
 
     def _board_is_active(self, orb_cfg) -> tuple:
-        """Return (True, board) when board shows ≥50% filled cells AND ≥3 distinct orb colours.
-        Returns (False, None) otherwise. Caller reuses the board to avoid a second screenshot."""
+        """Return (True, board) when ≥50% filled AND ≥3 distinct orb colours."""
         try:
-            from services.orb_board import OrbBoard, EMPTY
             board = OrbBoard(orb_cfg).snapshot()
             total = orb_cfg.rows * orb_cfg.cols
             colours: set = set()
@@ -266,7 +261,6 @@ class SceneRunner:
     # ── orb solve ─────────────────────────────────────────────────────────────
 
     def _do_orb_solve(self, orb_cfg, on_status: Callable[[str], None], board=None) -> None:
-        from services.orb_board import OrbBoard
         from services.orb_solver import OrbSolver
         from services.orb_executor import OrbExecutor
 
