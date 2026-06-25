@@ -992,6 +992,14 @@ class MainWindow:
         tk.Label(row_xy, text="← S 鍵", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).pack(side=tk.LEFT)
 
+        # Dynamic mode hint
+        self._scene_mode_lbl = tk.Label(
+            form, text="", bg=_C["bg"], fg=_C["accent"], font=("Segoe UI", 8))
+        self._scene_mode_lbl.pack(anchor=tk.W, pady=(2, 2))
+        for var in (self._scene_var_imgpath, self._scene_var_click_x,
+                    self._scene_var_click_y, self._scene_var_action):
+            var.trace_add("write", lambda *_: self._root.after(0, self._scene_update_mode_hint))
+
         # Confidence + cooldown
         row3 = tk.Frame(form, bg=_C["bg"])
         row3.pack(fill=tk.X, pady=(4, 6))
@@ -1115,9 +1123,15 @@ class MainWindow:
         self._scene_lb.delete(0, tk.END)
         for r in self._scene_rules:
             chk  = "☑" if r.enabled else "☐"
-            act  = "點擊" if r.action == "click" else "轉珠"
             name = r.name or r.image_path.split("/")[-1].split("\\")[-1]
-            self._scene_lb.insert(tk.END, f"  {chk}  {name}  →  {act}  ({r.cooldown}s)")
+            cd   = f"{r.cooldown:g}s"
+            if r.action == "orb_solve":
+                detail = f"🔮 轉珠  ({cd})"
+            elif not r.image_path and r.click_x is not None and r.click_y is not None:
+                detail = f"📌 ({r.click_x},{r.click_y})  ({cd})"
+            else:
+                detail = f"🖼 點擊  ({cd})"
+            self._scene_lb.insert(tk.END, f"  {chk}  {name}  →  {detail}")
             fg = _C["text"] if r.enabled else _C["text_muted"]
             self._scene_lb.itemconfig(tk.END, foreground=fg)
 
@@ -1139,6 +1153,26 @@ class MainWindow:
         self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
         self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
         self._scene_update_preview()
+        self._scene_update_mode_hint()
+
+    def _scene_update_mode_hint(self) -> None:
+        img = self._scene_var_imgpath.get().strip()
+        x   = self._scene_var_click_x.get().strip()
+        y   = self._scene_var_click_y.get().strip()
+        act = self._scene_var_action.get()
+        has_coord = bool(x and y)
+        if act == "orb_solve":
+            hint = "🔮 模式：轉珠 AI — 偵測珠盤後自動轉珠"
+        elif not img and has_coord:
+            hint = "📌 模式：純座標點擊 — 不需圖片，直接點固定位置"
+        elif img and has_coord:
+            hint = "🎯 模式：圖片觸發 → 點固定座標"
+        elif img and not has_coord:
+            hint = "🖼 模式：圖片偵測 → 點圖片中心（可加偏移）"
+        else:
+            hint = "⚠ 請設定圖片路徑 或 填入固定座標"
+        if hasattr(self, "_scene_mode_lbl"):
+            self._scene_mode_lbl.config(text=hint)
 
     def _scene_update_preview(self) -> None:
         path = self._scene_var_imgpath.get().strip()
