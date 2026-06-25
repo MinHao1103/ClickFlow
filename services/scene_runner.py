@@ -63,7 +63,7 @@ class SceneRunner:
         on_status("場景腳本執行中…")
         logger.info("SceneRunner started with %d rules", len(rules))
 
-        # Pre-filter enabled rules and resolve image paths once (fix #1 + #2)
+        # Pre-filter enabled rules and resolve image paths + labels once
         active = []
         for r in rules:
             if not r.enabled or not r.image_path:
@@ -71,7 +71,8 @@ class SceneRunner:
             img = r.image_path
             if base_dir and not os.path.isabs(img):
                 img = os.path.join(base_dir, img)
-            active.append((r, img))
+            lbl = r.name or img.split("/")[-1].split("\\")[-1]
+            active.append((r, img, lbl))
 
         # Cache hwnd between cycles; refresh only when stale (fix #6)
         cached_hwnd: Optional[int] = None
@@ -99,12 +100,10 @@ class SceneRunner:
                 except Exception:
                     cycle_shot = None
 
-                for rule, img_path in active:
+                for rule, img_path, label in active:
                     key = self._rule_key_static(rule)
                     if cooldowns.get(key, 0) > now:
                         continue
-
-                    label = rule.name or img_path.split("/")[-1].split("\\")[-1]
 
                     if rule.action == "orb_solve":
                         orb_cfg = get_orb_config()
@@ -229,7 +228,7 @@ class SceneRunner:
             except Exception:
                 pass_shot = None
             clicked = False
-            for rule, img_path in active:
+            for rule, img_path, label in active:
                 if not rule.enabled or rule.action != "click":
                     continue
                 matched, target_x, target_y = self._try_click_rule(
@@ -237,7 +236,6 @@ class SceneRunner:
                 if not matched:
                     continue
 
-                label = rule.name or img_path.split("/")[-1].split("\\")[-1]
                 on_fired(rule)
                 if hwnd and not focused:
                     try:
