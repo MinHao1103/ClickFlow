@@ -1604,7 +1604,8 @@ class MainWindow:
         self._scene_runner.start(
             rules=list(self._scene_rules),
             get_orb_config=lambda: self._orb_config,
-            on_status=lambda msg: self._root.after(0, lambda m=msg: self._scene_on_status(m)),
+            on_status=lambda msg: None if msg == "掃描中…" else self._root.after(
+                0, lambda m=msg: self._scene_on_status(m)),
             on_fired=lambda rule: self._root.after(
                 0, lambda r=rule: self._scene_log_append(
                     f"▶ {r.name or r.image_path.split(chr(47))[-1].split(chr(92))[-1]}"
@@ -1643,6 +1644,10 @@ class MainWindow:
         import time as _t
         ts = _t.strftime("%H:%M:%S")
         self._scene_log_txt.config(state=tk.NORMAL)
+        # Keep log from growing without bound; trim when > 500 lines
+        lines = int(self._scene_log_txt.index("end-1c").split(".")[0])
+        if lines > 500:
+            self._scene_log_txt.delete("1.0", f"{lines - 250}.0")
         self._scene_log_txt.insert(tk.END, f"[{ts}] {msg}")
         self._scene_log_txt.see(tk.END)
         self._scene_log_txt.config(state=tk.DISABLED)
