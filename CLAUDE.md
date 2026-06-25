@@ -281,7 +281,7 @@ OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon th
 
 **Flash focus requirement**: `SetForegroundWindow` must be called on the game window before executing orb drags — Flash Player ignores `pyautogui` mouse events when not the foreground window. `SceneRunner` does this for both click rules and orb_solve rules before acting.
 
-**Combo scoring**: simulate gravity-drop loop after placing orb; count total match rounds. 6+ same-colour in one round counts as 2 combos.
+**Combo scoring**: simulate gravity-drop loop after placing orb; count connected same-colour groups via BFS — each group = 1 combo, regardless of size. Two separate 3-orb groups score 2; one 6-orb chain scores 1. This intentionally prefers many small combos over large single-colour chains.
 
 **Drag execution**: `drag_speed_ms` (default 25 ms) per cell. Always calls `mouseUp()` even on abort via `_stop_event`.
 
