@@ -79,7 +79,7 @@ views/
 
 **ClickExecutor.start()**: takes a snapshot copy (`list(self._steps)`) so edits to the UI list during execution don't affect the running sequence. `pyautogui.FAILSAFE` is set to `False` at import time — the corner-of-screen abort is intentionally disabled.
 
-**`pyautogui.PAUSE = 0`** is set in `orb_executor.py` at import time. This removes the hidden 0.1 s inter-call delay that pyautogui inserts by default — without it, a 50-step orb drag wastes ~5 s. The `duration=` argument to `moveTo` already controls timing precisely.
+**Orb drag timing**: `OrbExecutor` uses `pyautogui.moveTo(x, y, duration=drag_speed_ms/1000.0)` — the `duration=` argument controls each cell's transit time precisely. `pyautogui.PAUSE` is NOT set to 0 (the default 0.1 s adds to each step and was found to help Flash Player track the cursor).
 
 **UI thread safety**: `MouseTracker` and `ClickExecutor` callbacks must never touch tkinter widgets directly. Pattern used throughout:
 ```python
@@ -167,29 +167,34 @@ orb_configs (id, name UNIQUE, board_x, board_y, cell_w, cell_h,
 
 **Two built-in profiles** are auto-created on first run:
 - **`摩靈傳說`** — full 12-rule preset including orb_solve; default profile
-- **`按鈕點擊`** — 11 navigation-only rules (no orb_solve); for the same dungeon
+- **`按鈕點擊`** — navigation-only rules (no orb_solve) prefixed with a disabled example rule
 
-If `'摩靈傳說'` has zero rules on startup, `_scene_load_tos_preset()` populates it automatically. If `'按鈕點擊'` is missing, `_scene_load_click_preset()` creates and populates it. No manual reload button — changes to hardcoded presets in `views/main_window.py` require deleting `clicker.db` or calling the loader methods directly.
+If `'摩靈傳說'` has zero rules on startup, `_scene_load_tos_preset()` populates it automatically. If `'按鈕點擊'` is missing or its first rule doesn't start with `"📌"`, `_scene_load_click_preset()` (re)creates it. No manual reload button — changes to hardcoded presets in `views/main_window.py` require deleting `clicker.db` or calling the loader methods directly.
+
+`_scene_apply_preset` accepts up to 10-field tuples: `(name, fname, action, conf, cooldown, dx, dy[, enabled[, click_x[, click_y]]])` — fields 8-10 are optional and default to `True / None / None`.
+
+**Screenshot subsystem**: `mss.MSS` (v10+) is the primary capture method — ~3-5× faster than `pyautogui.screenshot()`. Fallback to pyautogui if mss import fails. In `scene_runner.py`, one `mss.MSS()` instance (`sct`) is created when the loop starts and reused for every cycle; `sct.close()` is called in a `finally` block. `OrbBoard.capture()` opens a `with mss.MSS() as sct` per call (thread-safe; each orb snap is infrequent). BGRA→RGB conversion: `Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")`.
 
 **Data flow every 0.5 s**:
 ```
 SceneRunner._loop()
   # startup (once):
-  active = [(rule, img_path, label), ...]   # pre-filtered, paths + labels resolved
-  cycle_shot = pyautogui.screenshot()       # ONE screenshot shared across all rules
+  sct = mss.MSS()
+  active = [(rule, img_path, label), ...]   # enabled rules with non-empty image_path only
+  cycle_shot = _grab_screen(sct)            # ONE mss screenshot shared across all rules
   hwnd/rect refreshed at most once per second
 
   for rule, img_path, label in active:
     if cooldown not expired: continue
 
     if rule.action == "orb_solve":
-        is_active, board = _board_is_active(orb_cfg)   # separate orb screenshot
+        is_active, board = _board_is_active(orb_cfg)   # separate mss region crop
         ≥50% filled AND ≥3 distinct colours → proceed
-        _flush_click_rules(active, ...)     # pre-solve: dismiss stacked popups
+        _flush_click_rules(active, ..., sct=sct)  # pre-solve: dismiss stacked popups
         SetForegroundWindow(hwnd) → sleep 0.15s
-        _do_orb_solve(orb_cfg, board=board) # reuses snapshot; no 2nd screenshot
-        _flush_click_rules(active, ...)     # post-solve: dismiss mid-drag popups
-        _stop_event.wait(3.0)               # wait for combo animation
+        _do_orb_solve(orb_cfg, board=board)       # reuses snapshot; no 2nd screenshot
+        _flush_click_rules(active, ..., sct=sct)  # post-solve: dismiss mid-drag popups
+        _stop_event.wait(3.0)                     # wait for combo animation
     else:  # "click"
         _try_click_rule(rule, img_path, region, cycle_shot)
           → pyautogui.locate(img_path, cycle_shot)  # uses shared screenshot
@@ -197,7 +202,9 @@ SceneRunner._loop()
   if nothing fired: status = "掃描中…"
 ```
 
-**`_flush_click_rules()`**: loops until a full pass finds nothing (safety cap: 12 passes). Handles N stacked dialogs (確定 → 知道了 → 確定 → …). Ignores cooldowns. Takes one fresh `pyautogui.screenshot()` per pass (not per rule), since the screen changes after each click. `SetForegroundWindow` is called only once per flush session to avoid 0.15 s × N delays.
+**Note**: `active` list only includes rules with `r.image_path` non-empty — pure-coordinate rules (`image_path=""`) are filtered out and never executed by the runner. The `📌 固定座標範例` in `按鈕點擊` is disabled by default as a UI reference only.
+
+**`_flush_click_rules()`**: loops until a full pass finds nothing (safety cap: 12 passes). Handles N stacked dialogs (確定 → 知道了 → 確定 → …). Ignores cooldowns. Takes one fresh `_grab_screen(sct)` per pass (not per rule), since the screen changes after each click. `SetForegroundWindow` is called only once per flush session to avoid 0.15 s × N delays.
 
 **`SceneRule.click_dx / click_dy`**: pixel offset from template centre to actual click target. Used when the template covers only part of the clickable area — e.g.:
 - `scene_new_badge.png` (82×50 px) covers only the top-left of the dungeon circle: `click_dx=56, click_dy=77` → circle centre
@@ -235,6 +242,26 @@ SceneRunner._loop()
 
 `scene_btn_zhidaole_1h.png` (157×46 px) — the orange/red-bordered "知道了" button from the hourly online-time notification popup. Separate from `scene_btn_zhidaole.png` which was captured from a different game dialog context.
 
+## Scene Script UI (Tab 3)
+
+**Rule listbox format** (`_scene_refresh_list`):
+- `☑  🔮 轉珠  (3s)` — orb_solve rule
+- `☑  📌 (960,540)  (60s)` — pure-coord rule (click_x/y set, no image — inactive in runner, shown for reference)
+- `☑  🖼 點擊  (5s)` — image-template rule
+- Disabled rules rendered in `text_muted` colour; cooldown shown with `:g` format (no trailing `.0`)
+
+**Dynamic mode hint** (`_scene_update_mode_hint`): a `tk.Label` below the fixed-coord X/Y fields updates as the user types. It reads `image_path`, `click_x/y`, and `action` to display which of four modes is configured: `📌 純座標點擊` / `🖼 圖片偵測` / `🎯 圖片觸發→固定座標` / `🔮 轉珠AI`.
+
+**Rule form buttons**:
+- `套用（更新選中）` — `_scene_apply_edit()`: overwrites the currently selected rule; appends if nothing selected
+- `＋ 新增規則` — `_scene_add_from_form()`: always appends a new rule regardless of selection
+- `複製` (in list header) — `_scene_duplicate()`: inserts a copy at `sel+1` with `" 副本"` suffix
+- `🔴 錄製` (in image row) — `_scene_record_click()`: shows a red overlay, waits 0.6 s, captures one left-click via pynput, saves a 160×70 px crop to `dist/images/scene/captured_HHMMSS.png`, fills `image_path` and clears `click_x/y`
+
+**Log trimming**: `_scene_log_append` trims `_scene_log_txt` to 250 lines whenever it exceeds 500, preventing `see(tk.END)` from slowing down after long overnight runs.
+
+**`on_status` idle suppression**: the "掃描中…" callback short-circuits before `root.after()` — no GUI thread synchronisation cost on idle cycles.
+
 ## Recorder Behaviour
 
 `Recorder` (pynput global listeners) runs during recording and is distinct from `KeyboardMonitor`. When recording starts, `KeyboardMonitor` is stopped to avoid conflicts; it restarts when recording stops.
@@ -256,7 +283,7 @@ Full spec: `docs/orb_solver_spec.md`. Summary of the data flow:
 F8 / UI button
     │
     ▼
-OrbBoard.snapshot()          # pyautogui.screenshot → crop → vectorized HSV (numpy) → Board
+OrbBoard.snapshot()          # mss region crop → PIL RGB → vectorized HSV (numpy) → Board
     │  Board = list[list[str]]   constants: FIRE/WATER/WOOD/LIGHT/DARK/HEART/EMPTY="?"
     │  All 30 cells classified in one numpy pass (stack → HSV mask → saturation vote)
     ▼
@@ -270,7 +297,7 @@ OrbSolver.solve(board, time_limit=12.0)   # 4-pass beam search within 12s budget
     │  returns (List[Tuple[int,int]], combo_count)
     ▼
 OrbExecutor.run(path)        # mouseDown → moveTo × N → mouseUp  (daemon thread)
-    │  pyautogui.PAUSE = 0 at module import — eliminates hidden 0.1s per-call overhead
+    │  duration=drag_speed_ms/1000 per step; pyautogui default PAUSE (0.1s) retained
 ```
 
 **OrbConfig** (`models/orb_config.py`) stores calibration: `board_x/y`, `cell_w/h`, `rows`, `cols`, `drag_speed_ms`, `beam_width`, `max_steps`. Persisted via `DatabaseManager` to the `orb_configs` table. `board_x/y` are **screen coordinates** — must be re-calibrated any time the Flash Player window moves.
