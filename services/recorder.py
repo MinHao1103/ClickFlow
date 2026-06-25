@@ -256,8 +256,10 @@ class Recorder:
             self._modifiers.add(_MODIFIER_KEYS[key])
             return
 
-        # F9 → stop recording (do NOT record the key itself)
-        if key == pkeyboard.Key.f9:
+        # F9 or Space → stop recording (do NOT record the key itself)
+        is_space = (key == pkeyboard.Key.space or
+                    (isinstance(key, pkeyboard.KeyCode) and key.char == ' '))
+        if key == pkeyboard.Key.f9 or is_space:
             threading.Thread(target=self.stop, daemon=True).start()
             return
 
