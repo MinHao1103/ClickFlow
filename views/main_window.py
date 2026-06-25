@@ -941,7 +941,9 @@ class MainWindow:
         ttk.Button(row1, text="瀏覽", style="Ghost.TButton",
                    command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(row1, text="框選", style="Ghost.TButton",
-                   command=self._scene_capture).pack(side=tk.LEFT)
+                   command=self._scene_capture).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="🔴 錄製", style="Record.TButton",
+                   command=self._scene_record_click).pack(side=tk.LEFT)
 
         # Image preview — fixed-height frame prevents Label height=N (chars) issue
         prev_frame = tk.Frame(form, bg=_C["card"], height=72)
@@ -1365,6 +1367,80 @@ class MainWindow:
                         save_dir=os.path.join(_app_dir(), "images", "scene"),
                         on_done=on_done,
                         confine_rect=confine)
+
+    def _scene_record_click(self) -> None:
+        """Show overlay, wait for one left-click on screen, capture template around it."""
+        import threading
+        from pynput import mouse as _mouse
+
+        sw = self._root.winfo_screenwidth()
+        ow, oh = 360, 48
+        overlay = tk.Toplevel(self._root)
+        overlay.overrideredirect(True)
+        overlay.wm_attributes("-topmost", True)
+        overlay.wm_attributes("-alpha", 0.90)
+        overlay.configure(bg=_C["danger"])
+        overlay.geometry(f"{ow}x{oh}+{(sw - ow) // 2}+16")
+        tk.Label(overlay, text="🔴 請點擊要記錄的按鈕  (ESC 取消)",
+                 bg=_C["danger"], fg="white",
+                 font=("Segoe UI", 10, "bold")).pack(expand=True)
+
+        cancelled = threading.Event()
+
+        def on_escape(_e=None):
+            cancelled.set()
+            overlay.destroy()
+
+        overlay.bind("<Escape>", on_escape)
+        overlay.focus_force()
+
+        def listen():
+            # 0.6s delay so this button-click is not captured
+            import time; time.sleep(0.6)
+            if cancelled.is_set():
+                return
+
+            captured = [None]
+
+            def on_click(x, y, button, pressed):
+                if cancelled.is_set():
+                    return False
+                if pressed and button == _mouse.Button.left:
+                    captured[0] = (int(x), int(y))
+                    return False
+
+            with _mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+
+            self._root.after(0, overlay.destroy)
+            if captured[0] and not cancelled.is_set():
+                self._root.after(100, lambda: self._scene_capture_at(*captured[0]))
+
+        threading.Thread(target=listen, daemon=True).start()
+
+    def _scene_capture_at(self, x: int, y: int) -> None:
+        """Crop a 160×70 region centred on (x, y), save it, and fill the form."""
+        import datetime
+        crop_w, crop_h = 160, 70
+        x0 = max(0, x - crop_w // 2)
+        y0 = max(0, y - crop_h // 2)
+        img = pyautogui.screenshot(region=(x0, y0, crop_w, crop_h))
+
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"captured_{ts}.png"
+        save_dir = os.path.join(_app_dir(), "images", "scene")
+        os.makedirs(save_dir, exist_ok=True)
+        fpath = os.path.join(save_dir, fname)
+        img.save(fpath)
+
+        self._scene_var_imgpath.set(fpath)
+        # Leave click_x/y empty → click at template centre by default
+        self._scene_var_click_x.set("")
+        self._scene_var_click_y.set("")
+        if not self._scene_var_name.get().strip():
+            self._scene_var_name.set(f"規則_{ts[-6:]}")
+        self._scene_update_preview()
+        self._scene_update_mode_hint()
 
     def _scene_save(self) -> None:
         try:
