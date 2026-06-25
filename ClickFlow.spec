@@ -25,6 +25,12 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageTk',
         'PIL.ImageGrab',
+        # mss fast screenshot
+        'mss',
+        'mss.windows',
+        'mss.base',
+        'mss.screenshot',
+        'mss.tools',
     ],
     hookspath=[],
     hooksconfig={},

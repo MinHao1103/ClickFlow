@@ -6,6 +6,27 @@ import logging
 import pyautogui
 from typing import Callable, List, Optional, Tuple
 
+try:
+    import mss as _mss_mod
+    from PIL import Image as _PIL_Image
+    _HAS_MSS = True
+except ImportError:
+    _HAS_MSS = False
+
+
+def _grab_screen(sct) -> "Optional[object]":
+    """Full-screen screenshot → PIL Image.  Uses mss when available (3-5× faster)."""
+    if _HAS_MSS and sct is not None:
+        try:
+            shot = sct.grab(sct.monitors[1])
+            return _PIL_Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        except Exception:
+            pass
+    try:
+        return pyautogui.screenshot()
+    except Exception:
+        return None
+
 from models.scene_rule import SceneRule
 from services.orb_board import OrbBoard, EMPTY      # top-level import (fix #4)
 
@@ -59,9 +80,10 @@ class SceneRunner:
         base_dir: str,
     ) -> None:
         cooldowns: dict[int, float] = {}
+        sct = _mss_mod.MSS() if _HAS_MSS else None
 
         on_status("場景腳本執行中…")
-        logger.info("SceneRunner started with %d rules", len(rules))
+        logger.info("SceneRunner started with %d rules (mss=%s)", len(rules), _HAS_MSS)
 
         # Pre-filter enabled rules and resolve image paths + labels once
         active = []
@@ -79,7 +101,8 @@ class SceneRunner:
         cached_rect: Optional[tuple] = None
         hwnd_refresh_at: float = 0.0
 
-        while not self._stop_event.is_set():
+        try:
+          while not self._stop_event.is_set():
             try:
                 if not active:
                     self._stop_event.wait(0.5)
@@ -95,10 +118,7 @@ class SceneRunner:
                 fired = False
 
                 # One screenshot shared across all click-rule checks this cycle
-                try:
-                    cycle_shot = pyautogui.screenshot()
-                except Exception:
-                    cycle_shot = None
+                cycle_shot = _grab_screen(sct)
 
                 for rule, img_path, label in active:
                     key = self._rule_key_static(rule)
@@ -115,7 +135,7 @@ class SceneRunner:
 
                         # Pre-solve: clear lingering popups before dragging
                         self._flush_click_rules(
-                            active, cooldowns, region, hwnd, on_status, on_fired)
+                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct)
 
                         cooldowns[key] = time.time() + rule.cooldown
                         on_fired(rule)
@@ -131,7 +151,7 @@ class SceneRunner:
 
                         # Post-solve: dismiss popups that appeared during drag
                         self._flush_click_rules(
-                            active, cooldowns, region, hwnd, on_status, on_fired)
+                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct)
 
                         # Wait for combo animation
                         self._stop_event.wait(3.0)
@@ -166,6 +186,13 @@ class SceneRunner:
                 on_status(f"錯誤：{exc}")
 
             self._stop_event.wait(0.5)
+
+        finally:
+            if sct is not None:
+                try:
+                    sct.close()
+                except Exception:
+                    pass
 
         on_status("場景腳本已停止")
         logger.info("SceneRunner stopped")
@@ -211,7 +238,7 @@ class SceneRunner:
     # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
 
     def _flush_click_rules(self, active, cooldowns, region,
-                           hwnd, on_status, on_fired, max_passes: int = 12) -> None:
+                           hwnd, on_status, on_fired, max_passes: int = 12, sct=None) -> None:
         """Keep clicking matching click rules until a full pass finds nothing.
 
         Handles stacked dialogs (確定 → 知道了 → 確定 → …).
@@ -223,10 +250,7 @@ class SceneRunner:
             if self._stop_event.is_set():
                 break
             # Fresh screenshot per pass (screen changed after each click)
-            try:
-                pass_shot = pyautogui.screenshot()
-            except Exception:
-                pass_shot = None
+            pass_shot = _grab_screen(sct)
             clicked = False
             for rule, img_path, label in active:
                 if not rule.enabled or rule.action != "click":

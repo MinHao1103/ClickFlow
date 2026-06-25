@@ -5,6 +5,12 @@ import pyautogui
 from PIL import Image
 from models.orb_config import OrbConfig
 
+try:
+    import mss as _mss_mod
+    _HAS_MSS = True
+except ImportError:
+    _HAS_MSS = False
+
 logger = logging.getLogger(__name__)
 
 Board = list[list[str]]
@@ -48,10 +54,17 @@ class OrbBoard:
 
     def capture(self) -> Image.Image:
         cfg = self._cfg
+        region = {
+            "left": cfg.board_x, "top": cfg.board_y,
+            "width": cfg.cols * cfg.cell_w, "height": cfg.rows * cfg.cell_h,
+        }
+        if _HAS_MSS:
+            with _mss_mod.MSS() as sct:
+                shot = sct.grab(region)
+                return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
         return pyautogui.screenshot(region=(
             cfg.board_x, cfg.board_y,
-            cfg.cols * cfg.cell_w,
-            cfg.rows * cfg.cell_h,
+            cfg.cols * cfg.cell_w, cfg.rows * cfg.cell_h,
         ))
 
     def recognize(self, image: Image.Image) -> Board:
