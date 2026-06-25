@@ -1,7 +1,6 @@
 import heapq
 import time
 import logging
-from collections import Counter
 from models.orb_config import OrbConfig
 from services.orb_board import Board, EMPTY
 
@@ -53,9 +52,23 @@ def _score_board_uncached(board: Board) -> int:
                     r += 1
         if not matched:
             break
-        color_counts = Counter(b[r][c] for r, c in matched)
-        # 6+ same color in one wave scores double
-        total += sum(2 if n >= 6 else 1 for n in color_counts.values())
+        # Count same-colour connected groups (BFS): each group = 1 combo.
+        # Two separate 3-orb groups score 2; one 6-orb chain scores 1.
+        seen: set[tuple[int, int]] = set()
+        for pos in matched:
+            if pos in seen:
+                continue
+            color = b[pos[0]][pos[1]]
+            seen.add(pos)
+            total += 1
+            stack = [pos]
+            while stack:
+                pr, pc = stack.pop()
+                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    nb = (pr + dr, pc + dc)
+                    if nb in matched and nb not in seen and b[nb[0]][nb[1]] == color:
+                        seen.add(nb)
+                        stack.append(nb)
         for r, c in matched:
             b[r][c] = EMPTY
         _drop(b)
