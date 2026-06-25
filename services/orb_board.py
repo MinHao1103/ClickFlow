@@ -57,49 +57,40 @@ class OrbBoard:
     def recognize(self, image: Image.Image) -> Board:
         cfg = self._cfg
         arr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2HSV)
-        board = []
-        for r in range(cfg.rows):
-            row = []
-            for c in range(cfg.cols):
-                # 35-65 % crop: avoids the reddish outer glow/border common in orb art
-                x1 = int(c * cfg.cell_w + cfg.cell_w * 0.35)
-                y1 = int(r * cfg.cell_h + cfg.cell_h * 0.35)
-                x2 = int(c * cfg.cell_w + cfg.cell_w * 0.65)
-                y2 = int(r * cfg.cell_h + cfg.cell_h * 0.65)
-                cell = arr[y1:y2, x1:x2]
-                row.append(self._classify(cell))
-            board.append(row)
-        return board
+
+        # 35-65 % crop bounds (same for every cell)
+        cx0 = int(cfg.cell_w * 0.35); cx1 = int(cfg.cell_w * 0.65)
+        cy0 = int(cfg.cell_h * 0.35); cy1 = int(cfg.cell_h * 0.65)
+        n_cells = cfg.rows * cfg.cols
+
+        # Stack all cell centre crops: (n_cells, crop_h, crop_w, 3)
+        crops = np.stack([
+            arr[r * cfg.cell_h + cy0 : r * cfg.cell_h + cy1,
+                c * cfg.cell_w + cx0 : c * cfg.cell_w + cx1]
+            for r in range(cfg.rows)
+            for c in range(cfg.cols)
+        ])
+
+        h = crops[:, :, :, 0].astype(np.int32)    # hue   (N, H, W)
+        s = crops[:, :, :, 1].astype(np.float32)  # sat
+        v = crops[:, :, :, 2]                      # val
+        mask = (s > 100) & (v > 45) & (v < 235)   # exclude highlights/shadows
+
+        # Saturation-weighted vote per orb type across all cells in one pass
+        n_orbs = len(_ORB_HSV)
+        scores = np.zeros((n_cells, n_orbs), dtype=np.float32)
+        for j, (_, ranges) in enumerate(_ORB_HSV):
+            in_hue = np.zeros((n_cells, crops.shape[1], crops.shape[2]), dtype=bool)
+            for lo, hi in ranges:
+                in_hue |= (h >= lo) & (h <= hi)
+            scores[:, j] = (s * (mask & in_hue)).sum(axis=(1, 2))
+
+        orb_names = [orb for orb, _ in _ORB_HSV]
+        best = np.argmax(scores, axis=1)
+        has_match = scores.max(axis=1) > 0
+
+        flat = [orb_names[best[i]] if has_match[i] else EMPTY for i in range(n_cells)]
+        return [flat[r * cfg.cols : (r + 1) * cfg.cols] for r in range(cfg.rows)]
 
     def snapshot(self) -> Board:
         return self.recognize(self.capture())
-
-    def _classify(self, cell_hsv: np.ndarray) -> str:
-        # Exclude white highlights (S too low) and shadows (V out of range)
-        mask = (
-            (cell_hsv[:, :, 1] > 100) &
-            (cell_hsv[:, :, 2] > 45)  &
-            (cell_hsv[:, :, 2] < 235)
-        )
-        if not np.any(mask):
-            return EMPTY
-
-        hues = cell_hsv[:, :, 0][mask]
-        sats = cell_hsv[:, :, 1][mask].astype(float)
-
-        # Score each orb type by total saturation of pixels that fall within its hue range.
-        # More saturated pixels = stronger vote; whichever orb captures the most wins.
-        best_name  = EMPTY
-        best_score = 0.0
-        for orb, ranges in _ORB_HSV:
-            score = 0.0
-            for lo, hi in ranges:
-                in_range = (hues >= lo) & (hues <= hi)
-                score += float(sats[in_range].sum())
-            if score > best_score:
-                best_score = score
-                best_name  = orb
-
-        if best_name == EMPTY:
-            logger.debug("Unclassified cell — no hue range matched (S-sum=0)")
-        return best_name

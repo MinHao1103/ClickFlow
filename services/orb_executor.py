@@ -5,6 +5,8 @@ import pyautogui
 from typing import Callable, Optional
 from models.orb_config import OrbConfig
 
+pyautogui.PAUSE = 0  # drag timing is controlled by duration=; remove hidden per-call overhead
+
 logger = logging.getLogger(__name__)
 
 

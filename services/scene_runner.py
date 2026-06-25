@@ -93,6 +93,12 @@ class SceneRunner:
 
                 fired = False
 
+                # One screenshot shared across all click-rule checks this cycle
+                try:
+                    cycle_shot = pyautogui.screenshot()
+                except Exception:
+                    cycle_shot = None
+
                 for rule, img_path in active:
                     key = self._rule_key_static(rule)
                     if cooldowns.get(key, 0) > now:
@@ -134,7 +140,8 @@ class SceneRunner:
                         break
 
                     # ── click rule ───────────────────────────────────────────
-                    matched, target_x, target_y = self._try_click_rule(rule, img_path, region)
+                    matched, target_x, target_y = self._try_click_rule(
+                        rule, img_path, region, cycle_shot)
                     if not matched:
                         continue
 
@@ -168,8 +175,12 @@ class SceneRunner:
 
     @staticmethod
     def _try_click_rule(rule: SceneRule, img_path: str,
-                        region) -> tuple[bool, int, int]:
-        """Try to match a click rule. Returns (matched, target_x, target_y)."""
+                        region, haystack=None) -> tuple[bool, int, int]:
+        """Try to match a click rule. Returns (matched, target_x, target_y).
+
+        When haystack is a pre-taken PIL screenshot (full screen), locate() is
+        used directly — avoids a redundant screenshot per rule per cycle.
+        """
         has_abs = rule.click_x is not None and rule.click_y is not None
 
         if has_abs and not img_path:
@@ -179,8 +190,13 @@ class SceneRunner:
             return False, 0, 0
 
         try:
-            loc = pyautogui.locateOnScreen(img_path, region=region,
-                                           confidence=rule.confidence)
+            if haystack is not None:
+                # haystack is a full-screen PIL image; locate returns screen-absolute coords
+                loc = pyautogui.locate(img_path, haystack,
+                                       confidence=rule.confidence)
+            else:
+                loc = pyautogui.locateOnScreen(img_path, region=region,
+                                               confidence=rule.confidence)
         except Exception:
             return False, 0, 0
 
@@ -207,11 +223,17 @@ class SceneRunner:
         for pass_num in range(max_passes):
             if self._stop_event.is_set():
                 break
+            # Fresh screenshot per pass (screen changed after each click)
+            try:
+                pass_shot = pyautogui.screenshot()
+            except Exception:
+                pass_shot = None
             clicked = False
             for rule, img_path in active:
                 if not rule.enabled or rule.action != "click":
                     continue
-                matched, target_x, target_y = self._try_click_rule(rule, img_path, region)
+                matched, target_x, target_y = self._try_click_rule(
+                    rule, img_path, region, pass_shot)
                 if not matched:
                     continue
 
