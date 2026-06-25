@@ -303,17 +303,19 @@ class DatabaseManager:
             with self._connect() as conn:
                 pid = self._profile_id(conn, profile_name)
                 conn.execute("DELETE FROM scene_rules WHERE profile_id = ?", (pid,))
-                for i, r in enumerate(rules):
-                    conn.execute(
-                        """INSERT INTO scene_rules
-                           (profile_id, order_idx, name, image_path, action,
-                            confidence, cooldown, enabled,
-                            click_dx, click_dy, click_x, click_y)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                conn.executemany(
+                    """INSERT INTO scene_rules
+                       (profile_id, order_idx, name, image_path, action,
+                        confidence, cooldown, enabled,
+                        click_dx, click_dy, click_x, click_y)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    [
                         (pid, i, r.name, r.image_path, r.action,
                          r.confidence, r.cooldown, int(r.enabled),
-                         r.click_dx, r.click_dy, r.click_x, r.click_y),
-                    )
+                         r.click_dx, r.click_dy, r.click_x, r.click_y)
+                        for i, r in enumerate(rules)
+                    ],
+                )
             logger.info("Saved %d scene rules to profile '%s'", len(rules), profile_name)
         except sqlite3.Error:
             logger.exception("Failed to save scene rules")
@@ -341,10 +343,10 @@ class DatabaseManager:
                     enabled=bool(r["enabled"]),
                     order_idx=r["order_idx"],
                     db_id=r["id"],
-                    click_dx=r["click_dx"] if "click_dx" in r.keys() else 0,
-                    click_dy=r["click_dy"] if "click_dy" in r.keys() else 0,
-                    click_x=r["click_x"] if "click_x" in r.keys() else None,
-                    click_y=r["click_y"] if "click_y" in r.keys() else None,
+                    click_dx=r["click_dx"],
+                    click_dy=r["click_dy"],
+                    click_x=r["click_x"],
+                    click_y=r["click_y"],
                 )
                 for r in rows
             ]

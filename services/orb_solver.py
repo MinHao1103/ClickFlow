@@ -1,3 +1,4 @@
+import heapq
 import time
 import logging
 from collections import Counter
@@ -93,10 +94,11 @@ def _beam_search(
     cols = len(board[0])
     held = board[sr][sc]
     init = [row[:] for row in board]
-    beams: list[tuple] = [(init, (sr, sc), held, [(sr, sc)])]
+    # path stored as tuple for fast immutable concatenation
+    beams: list[tuple] = [(init, (sr, sc), held, ((sr, sc),))]
 
     best_score = 0
-    best_path: list = [(sr, sc)]
+    best_path: tuple = ((sr, sc),)
 
     for _ in range(max_steps):
         if time.time() >= deadline:
@@ -113,16 +115,17 @@ def _beam_search(
                     continue
                 nb = _move(brd, pos, (nr, nc), h)
                 s = score_board(nb)
-                candidates.append((s, nb, (nr, nc), h, path + [(nr, nc)]))
+                candidates.append((s, nb, (nr, nc), h, path + ((nr, nc),)))
         if not candidates:
             break
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        if candidates[0][0] > best_score:
-            best_score = candidates[0][0]
-            best_path = candidates[0][4]
-        beams = [(c[1], c[2], c[3], c[4]) for c in candidates[:beam_width]]
+        # heapq.nlargest is O(N log K) vs sort's O(N log N) — faster when N >> beam_width
+        top = heapq.nlargest(beam_width, candidates, key=lambda x: x[0])
+        if top[0][0] > best_score:
+            best_score = top[0][0]
+            best_path = top[0][4]
+        beams = [(c[1], c[2], c[3], c[4]) for c in top]
 
-    return best_score, best_path
+    return best_score, list(best_path)
 
 
 class OrbSolver:

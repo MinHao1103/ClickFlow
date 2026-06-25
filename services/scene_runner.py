@@ -203,6 +203,7 @@ class SceneRunner:
         Ignores cooldowns so fresh dialogs are never skipped.
         Safety cap: max_passes clicks before giving up.
         """
+        focused = False  # only focus window once per flush session
         for pass_num in range(max_passes):
             if self._stop_event.is_set():
                 break
@@ -216,10 +217,11 @@ class SceneRunner:
 
                 label = rule.name or img_path.split("/")[-1].split("\\")[-1]
                 on_fired(rule)
-                if hwnd:
+                if hwnd and not focused:
                     try:
                         ctypes.windll.user32.SetForegroundWindow(hwnd)
                         time.sleep(0.15)
+                        focused = True
                     except Exception:
                         pass
                 pyautogui.click(target_x, target_y)
