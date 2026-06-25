@@ -439,15 +439,22 @@ class MainWindow:
             if not self._scene_rules:
                 # First run — populate default profile with 摩靈 preset
                 self._scene_load_tos_preset("摩靈傳說")
-            # Ensure the click-only profile exists and has the example rule at top
+            # Ensure the fixed-dungeon profile exists with placeholder rules
+            _FP = "固定關卡刷圖"
             profiles = self._db.list_scene_profile_names()
-            click_rules = self._db.load_scene_rules("按鈕點擊") if "按鈕點擊" in profiles else []
-            needs_reload = (not click_rules or not click_rules[0].name.startswith("📌"))
+            # Migrate legacy profile name
+            if "按鈕點擊" in profiles and _FP not in profiles:
+                self._db.rename_scene_profile("按鈕點擊", _FP)
+                profiles = self._db.list_scene_profile_names()
+            fixed_rules = self._db.load_scene_rules(_FP) if _FP in profiles else []
+            needs_reload = (
+                not fixed_rules
+                or not any(r.name.startswith("📌 進入指定") for r in fixed_rules)
+            )
             if needs_reload:
                 saved = self._scene_profile
                 saved_rules = list(self._scene_rules)
-                self._scene_load_click_preset("按鈕點擊")
-                # Restore active profile state after seeding
+                self._scene_load_click_preset(_FP)
                 self._scene_profile = saved
                 self._scene_rules = saved_rules
                 self._scene_refresh_profiles()
@@ -1540,13 +1547,28 @@ class MainWindow:
         ]
         self._scene_apply_preset(presets, profile_name)
 
-    def _scene_load_click_preset(self, profile_name: str = "按鈕點擊") -> None:
-        """Load 按鈕點擊 preset (navigation only, no orb_solve) into profile_name."""
-        example = [
-            # (name, fname, action, conf, cooldown, dx, dy, enabled, click_x, click_y)
-            ("📌 固定座標範例（停用）", "", "click", 0.8, 60.0, 0, 0, False, 960, 540),
+    def _scene_load_click_preset(self, profile_name: str = "固定關卡刷圖") -> None:
+        """Load 固定關卡刷圖 preset — orb_solve + navigation, custom stage placeholders."""
+        presets = [
+            # ── Orb solve ─────────────────────────────────────────────────────
+            ("珠盤就緒",                "scene_battle_banner.png",    "orb_solve", 0.75, 15.0, 0,   0),
+            # ── Post-battle popups ────────────────────────────────────────────
+            ("斷線重連",               "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0),
+            ("知道了",                 "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0),
+            ("知道了(1h提示)",          "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0),
+            ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
+            ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
+            # ── Stage entry ───────────────────────────────────────────────────
+            ("選第一個盟友",           "scene_select_ally.png",      "click",     0.85,  3.0, 0,   0),
+            # ← 用 🔴 錄製 截圖後啟用，conf/cooldown 視情況調整
+            ("📌 進入指定關卡（請截圖設定）", "",                     "click",     0.85,  5.0, 0,   0, False),
+            ("📌 點擊指定地城（請截圖設定）", "",                     "click",     0.82,  5.0, 0,   0, False),
+            # ── Hub navigation (lowest priority) ──────────────────────────────
+            ("翻下一頁",               "scene_btn_nextpage.png",     "click",     0.82, 10.0, 0,   0),
+            ("點冒險地圖",             "scene_btn_adventure.png",    "click",     0.80,  5.0, 0,   0),
+            ("點摩靈按鈕",             "scene_btn_maling.png",       "click",     0.80,  5.0, 0,   0),
         ]
-        self._scene_apply_preset(example + list(self._CLICK_PRESETS), profile_name)
+        self._scene_apply_preset(presets, profile_name)
 
     def _scene_apply_preset(self, presets: list, profile_name: str) -> None:
         base = os.path.join(_app_dir(), "images", "scene")
