@@ -388,6 +388,162 @@ class _RegionSelector:
         self._on_done(None, 0, 0)
 
 
+class _ScreenCapSelector:
+    """Take a screenshot then let the user draw a selection rectangle on it.
+
+    Usage:
+      _ScreenCapSelector(root, save_dir, on_done)
+      on_done(path: str | None)
+
+    Shows a 2-second countdown overlay so the user can switch to the game,
+    then captures the primary monitor and opens a full-screen viewer.
+    The user drags to mark the desired region; releasing the mouse saves the
+    crop and calls on_done with the file path.  ESC cancels.
+    """
+
+    def __init__(self, root: tk.Tk, save_dir: str, on_done: callable) -> None:
+        import os as _os
+        self._root    = root
+        self._save_dir = save_dir
+        self._on_done = on_done
+        _os.makedirs(save_dir, exist_ok=True)
+
+        self._screenshot = None   # PIL Image, full resolution
+        self._scale  = 1.0
+        self._sx = self._sy = 0   # drag start (display coords)
+        self._rect_id = None
+        self._overlay_id = None   # darkening overlay canvas item
+        self._win = None
+
+        self._show_countdown(2)
+
+    # ── countdown overlay ────────────────────────────────────────────────
+
+    def _show_countdown(self, n: int) -> None:
+        sw = self._root.winfo_screenwidth()
+        ow, oh = 340, 52
+        self._cd_win = tk.Toplevel(self._root)
+        self._cd_win.overrideredirect(True)
+        self._cd_win.wm_attributes("-topmost", True)
+        self._cd_win.wm_attributes("-alpha", 0.88)
+        self._cd_win.configure(bg="#818cf8")
+        self._cd_win.geometry(f"{ow}x{oh}+{(sw - ow) // 2}+16")
+        self._cd_lbl = tk.Label(
+            self._cd_win, bg="#818cf8", fg="white",
+            font=("Segoe UI", 11, "bold"))
+        self._cd_lbl.pack(expand=True)
+        self._cd_win.bind("<Escape>", lambda _: self._abort())
+        self._tick(n)
+
+    def _tick(self, n: int) -> None:
+        if n > 0:
+            self._cd_lbl.config(text=f"請切換到遊戲…  {n} 秒後截圖  (ESC 取消)")
+            self._cd_win.after(1000, lambda: self._tick(n - 1))
+        else:
+            self._cd_lbl.config(text="截圖中…")
+            self._cd_win.after(80, self._capture)
+
+    def _abort(self) -> None:
+        try:
+            self._cd_win.destroy()
+        except Exception:
+            pass
+        if self._win:
+            try:
+                self._win.destroy()
+            except Exception:
+                pass
+        self._on_done(None)
+
+    # ── screenshot + selector window ─────────────────────────────────────
+
+    def _capture(self) -> None:
+        try:
+            self._cd_win.destroy()
+        except Exception:
+            pass
+        try:
+            import mss as _mss
+            from PIL import Image as _PIL
+            with _mss.MSS() as sct:
+                shot = sct.grab(sct.monitors[1])
+                self._screenshot = _PIL.frombytes(
+                    "RGB", shot.size, shot.bgra, "raw", "BGRX")
+        except Exception:
+            import pyautogui as _pag
+            self._screenshot = _pag.screenshot()
+        self._open_selector()
+
+    def _open_selector(self) -> None:
+        from PIL import ImageTk as _ITk, Image as _PIL
+        sw = self._root.winfo_screenwidth()
+        sh = self._root.winfo_screenheight()
+        iw, ih = self._screenshot.size
+        self._scale = min(sw / iw, sh / ih, 1.0)
+        dw = int(iw * self._scale)
+        dh = int(ih * self._scale)
+
+        self._win = tk.Toplevel(self._root)
+        self._win.overrideredirect(True)
+        self._win.wm_attributes("-topmost", True)
+        self._win.geometry(f"{dw}x{dh}+0+0")
+
+        resized = self._screenshot.resize((dw, dh), _PIL.LANCZOS)
+        self._photo = _ITk.PhotoImage(resized)
+
+        cv = tk.Canvas(self._win, width=dw, height=dh, cursor="crosshair",
+                       highlightthickness=0)
+        cv.pack(fill=tk.BOTH, expand=True)
+        cv.create_image(0, 0, anchor=tk.NW, image=self._photo)
+
+        # Instruction hint
+        hint = "拖曳選取區域  ·  放開儲存  ·  ESC 取消"
+        cv.create_text(dw // 2 + 1, 21, text=hint, fill="#000000",
+                       font=("Segoe UI", 11, "bold"))
+        cv.create_text(dw // 2, 20, text=hint, fill="#ffffff",
+                       font=("Segoe UI", 11, "bold"))
+
+        cv.bind("<ButtonPress-1>",   self._on_press)
+        cv.bind("<B1-Motion>",       self._on_drag)
+        cv.bind("<ButtonRelease-1>", self._on_release)
+        self._win.bind("<Escape>", lambda _: self._abort())
+        self._win.focus_force()
+        self._cv = cv
+
+    def _on_press(self, e) -> None:
+        self._sx, self._sy = e.x, e.y
+        if self._rect_id:
+            self._cv.delete(self._rect_id)
+        if self._overlay_id:
+            self._cv.delete(self._overlay_id)
+        self._rect_id = self._cv.create_rectangle(
+            e.x, e.y, e.x, e.y,
+            outline="#4ade80", width=2, dash=(6, 3))
+
+    def _on_drag(self, e) -> None:
+        if self._rect_id:
+            self._cv.coords(self._rect_id, self._sx, self._sy, e.x, e.y)
+
+    def _on_release(self, e) -> None:
+        x1, y1 = min(self._sx, e.x), min(self._sy, e.y)
+        x2, y2 = max(self._sx, e.x), max(self._sy, e.y)
+        if x2 - x1 < 4 or y2 - y1 < 4:
+            return   # too small — ignore and let user try again
+        try:
+            self._win.destroy()
+        except Exception:
+            pass
+        # Convert display → full-resolution coords
+        sc = self._scale
+        crop = self._screenshot.crop(
+            (int(x1 / sc), int(y1 / sc), int(x2 / sc), int(y2 / sc)))
+        import os as _os, time as _t
+        fname = f"marked_{int(_t.time() * 1000)}.png"
+        path  = _os.path.join(self._save_dir, fname)
+        crop.save(path)
+        self._on_done(path)
+
+
 # ── MainWindow ────────────────────────────────────────────────────────────────
 class MainWindow:
     def __init__(self, root: tk.Tk, db: DatabaseManager) -> None:
@@ -950,7 +1106,9 @@ class MainWindow:
         ttk.Button(row1, text="框選", style="Ghost.TButton",
                    command=self._scene_capture).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(row1, text="🔴 錄製", style="Record.TButton",
-                   command=self._scene_record_click).pack(side=tk.LEFT)
+                   command=self._scene_record_click).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="截圖標記", style="Ghost.TButton",
+                   command=self._scene_screenshot_select).pack(side=tk.LEFT)
 
         # Image preview — fixed-height frame prevents Label height=N (chars) issue
         prev_frame = tk.Frame(form, bg=_C["card"], height=72)
@@ -1448,6 +1606,24 @@ class MainWindow:
             self._scene_var_name.set(f"規則_{ts[-6:]}")
         self._scene_update_preview()
         self._scene_update_mode_hint()
+
+    def _scene_screenshot_select(self) -> None:
+        """Countdown → screenshot → let user draw a selection → fill form."""
+        def on_done(path: str | None) -> None:
+            if not path:
+                return
+            self._scene_var_imgpath.set(path)
+            if not self._scene_var_name.get().strip():
+                import time as _t
+                self._scene_var_name.set(f"規則_{_t.strftime('%H%M%S')}")
+            self._scene_update_preview()
+            self._scene_update_mode_hint()
+
+        _ScreenCapSelector(
+            self._root,
+            save_dir=os.path.join(_app_dir(), "images", "scene"),
+            on_done=on_done,
+        )
 
     def _scene_save(self) -> None:
         try:
