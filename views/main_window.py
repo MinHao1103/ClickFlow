@@ -439,9 +439,11 @@ class MainWindow:
             if not self._scene_rules:
                 # First run — populate default profile with 摩靈 preset
                 self._scene_load_tos_preset("摩靈傳說")
-            # Ensure the click-only profile also exists on first run
+            # Ensure the click-only profile exists and has the example rule at top
             profiles = self._db.list_scene_profile_names()
-            if "按鈕點擊" not in profiles:
+            click_rules = self._db.load_scene_rules("按鈕點擊") if "按鈕點擊" in profiles else []
+            needs_reload = (not click_rules or not click_rules[0].name.startswith("📌"))
+            if needs_reload:
                 saved = self._scene_profile
                 saved_rules = list(self._scene_rules)
                 self._scene_load_click_preset("按鈕點擊")
@@ -1025,6 +1027,8 @@ class MainWindow:
                    command=self._scene_move_up).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(btn_row, text="↓", style="Ghost.TButton", width=3,
                    command=self._scene_move_down).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="複製", style="Ghost.TButton",
+                   command=self._scene_duplicate).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="✕ 刪除", style="GhostDanger.TButton",
                    command=self._scene_delete).pack(side=tk.LEFT)
 
@@ -1174,6 +1178,26 @@ class MainWindow:
         self._scene_rules.pop(idx)
         self._scene_sel = None
         self._scene_refresh_list()
+        self._scene_save()
+
+    def _scene_duplicate(self) -> None:
+        if self._scene_sel is None or self._scene_sel >= len(self._scene_rules):
+            return
+        src = self._scene_rules[self._scene_sel]
+        dup = SceneRule(
+            image_path=src.image_path, action=src.action,
+            name=src.name + " 副本",
+            confidence=src.confidence, cooldown=src.cooldown,
+            enabled=src.enabled, order_idx=len(self._scene_rules),
+            click_dx=src.click_dx, click_dy=src.click_dy,
+            click_x=src.click_x, click_y=src.click_y,
+        )
+        insert_at = self._scene_sel + 1
+        self._scene_rules.insert(insert_at, dup)
+        self._scene_sel = insert_at
+        self._scene_refresh_list()
+        self._scene_lb.selection_set(insert_at)
+        self._scene_lb.see(insert_at)
         self._scene_save()
 
     def _scene_move_up(self) -> None:
@@ -1408,7 +1432,11 @@ class MainWindow:
 
     def _scene_load_click_preset(self, profile_name: str = "按鈕點擊") -> None:
         """Load 按鈕點擊 preset (navigation only, no orb_solve) into profile_name."""
-        self._scene_apply_preset(list(self._CLICK_PRESETS), profile_name)
+        example = [
+            # (name, fname, action, conf, cooldown, dx, dy, enabled, click_x, click_y)
+            ("📌 固定座標範例（停用）", "", "click", 0.8, 60.0, 0, 0, False, 960, 540),
+        ]
+        self._scene_apply_preset(example + list(self._CLICK_PRESETS), profile_name)
 
     def _scene_apply_preset(self, presets: list, profile_name: str) -> None:
         base = os.path.join(_app_dir(), "images", "scene")
@@ -1422,20 +1450,21 @@ class MainWindow:
             self._db.create_scene_profile(profile_name)
 
         self._scene_profile = profile_name
-        self._scene_rules = [
-            SceneRule(
+        rules = []
+        for i, row in enumerate(presets):
+            name, fname, action, conf, cooldown, click_dx, click_dy = row[:7]
+            enabled = row[7] if len(row) > 7 else True
+            click_x = row[8] if len(row) > 8 else None
+            click_y = row[9] if len(row) > 9 else None
+            rules.append(SceneRule(
                 image_path=os.path.join(base, fname) if fname else "",
-                action=action,
-                name=name,
-                confidence=conf,
-                cooldown=cooldown,
-                enabled=True,
-                order_idx=i,
-                click_dx=click_dx,
-                click_dy=click_dy,
-            )
-            for i, (name, fname, action, conf, cooldown, click_dx, click_dy) in enumerate(presets)
-        ]
+                action=action, name=name,
+                confidence=conf, cooldown=cooldown,
+                enabled=enabled, order_idx=i,
+                click_dx=click_dx, click_dy=click_dy,
+                click_x=click_x, click_y=click_y,
+            ))
+        self._scene_rules = rules
         self._scene_sel = None
         self._scene_refresh_profiles()
         self._scene_refresh_list()
