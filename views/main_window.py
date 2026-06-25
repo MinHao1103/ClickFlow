@@ -1004,8 +1004,12 @@ class MainWindow:
         tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
-        ttk.Button(form, text="＋ 套用 / 新增至列表", style="Accent.TButton",
-                   command=self._scene_apply_edit).pack(fill=tk.X, pady=(0, 6))
+        btn_row_apply = tk.Frame(form, bg=_C["bg"])
+        btn_row_apply.pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_row_apply, text="套用（更新選中）", style="Accent.TButton",
+                   command=self._scene_apply_edit).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 4))
+        ttk.Button(btn_row_apply, text="＋ 新增規則", style="Start.TButton",
+                   command=self._scene_add_from_form).pack(side=tk.LEFT, expand=True, fill=tk.X)
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
 
@@ -1192,6 +1196,42 @@ class MainWindow:
         self._scene_sel = i + 1
         self._scene_refresh_list()
         self._scene_lb.selection_set(self._scene_sel)
+        self._scene_save()
+
+    def _scene_add_from_form(self) -> None:
+        """Always append a new rule using current form values, regardless of selection."""
+        name    = self._scene_var_name.get().strip()
+        imgpath = self._scene_var_imgpath.get().strip()
+        action  = self._scene_var_action.get()
+        enabled = self._scene_var_enabled.get()
+        try:
+            conf = float(self._scene_var_conf.get() or 0.8)
+        except ValueError:
+            conf = 0.8
+        try:
+            cool = float(self._scene_var_cool.get() or 3.0)
+        except ValueError:
+            cool = 3.0
+        try:
+            click_x = int(self._scene_var_click_x.get().strip()) \
+                if self._scene_var_click_x.get().strip() else None
+            click_y = int(self._scene_var_click_y.get().strip()) \
+                if self._scene_var_click_y.get().strip() else None
+        except ValueError:
+            click_x = click_y = None
+
+        r = SceneRule(
+            image_path=imgpath, action=action, name=name or "新規則",
+            confidence=conf, cooldown=cool, enabled=enabled,
+            order_idx=len(self._scene_rules),
+            click_x=click_x, click_y=click_y,
+        )
+        self._scene_rules.append(r)
+        idx = len(self._scene_rules) - 1
+        self._scene_sel = idx
+        self._scene_refresh_list()
+        self._scene_lb.selection_set(idx)
+        self._scene_lb.see(idx)
         self._scene_save()
 
     def _scene_apply_edit(self) -> None:
