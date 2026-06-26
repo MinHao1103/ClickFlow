@@ -219,7 +219,7 @@ class _MiniRecorder:
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         self._listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        ttk.Button(body, text="■  停止錄製  [F9]", style="Stop.TButton",
+        ttk.Button(body, text="■  結束錄製  [F9]", style="Stop.TButton",
                    command=on_stop).pack(fill=tk.X)
 
     def update(self, step: ClickStep, total: int) -> None:
@@ -2908,7 +2908,7 @@ class MainWindow:
         )
         self._recorder.start()
 
-        self._btn_record.config(text="■  停止錄製  [F9]", style="Stop.TButton", command=self._stop_recording, state=tk.NORMAL)
+        self._btn_record.config(text="■  結束錄製  [F9]", style="Stop.TButton", command=self._stop_recording, state=tk.NORMAL)
         self._btn_execute.config(state=tk.DISABLED)
         self._set_status("●  錄製中…", "record")
         self._show_mini_recorder()
