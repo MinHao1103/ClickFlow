@@ -3581,9 +3581,11 @@ class _StepEditorDialog(tk.Toplevel):
                          action_type=action, keyboard_text=kb)
 
     def _capture_position(self) -> None:
+        self.grab_release()
         self.withdraw()
         def on_done(x, y):
             self.deiconify()
+            self.grab_set()
             self.focus_force()
             if x is not None and y is not None:
                 dx, dy = self._parent._get_window_offset(self._binding)
@@ -3594,9 +3596,11 @@ class _StepEditorDialog(tk.Toplevel):
         _CoordinatePicker(self._parent._root, on_done)
 
     def _capture_drag_destination(self) -> None:
+        self.grab_release()
         self.withdraw()
         def on_done(x, y):
             self.deiconify()
+            self.grab_set()
             self.focus_force()
             if x is not None and y is not None:
                 dx, dy = self._parent._get_window_offset(self._binding)
@@ -3607,9 +3611,11 @@ class _StepEditorDialog(tk.Toplevel):
         _CoordinatePicker(self._parent._root, on_done)
 
     def _capture_region(self) -> None:
+        self.grab_release()
         self.withdraw()
         def on_done(path, *_):
             self.deiconify()
+            self.grab_set()
             self.focus_force()
             if path:
                 self._var_img_path.set(path)
@@ -3619,9 +3625,11 @@ class _StepEditorDialog(tk.Toplevel):
                         on_done=on_done)
 
     def _editor_record_click(self) -> None:
+        self.grab_release()
         self.withdraw()
         def on_done(x, y):
             self.deiconify()
+            self.grab_set()
             self.focus_force()
             if x is not None and y is not None:
                 self._editor_capture_at(x, y)
