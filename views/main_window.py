@@ -2518,9 +2518,6 @@ class MainWindow:
             ttk.Entry(row, textvariable=getattr(self, var_attr)).pack(
                 side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
-                   command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 6))
-
         tk.Label(parent, text="已儲存操作", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
             anchor=tk.W, padx=PX, pady=(4, 2))
@@ -2541,10 +2538,10 @@ class MainWindow:
         ttk.Button(act, text="＋ 新增", style="Ghost.TButton",
                    command=self._new_operation).pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
-        ttk.Button(act, text="載入", style="Accent.TButton",
-                   command=self._load_selected_profile).pack(
+        ttk.Button(act, text="💾 儲存", style="Accent.TButton",
+                   command=self._save_profile).pack(
             side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
-        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
+        ttk.Button(act, text="🗑️ 刪除", style="GhostDanger.TButton",
                    command=self._delete_selected_profile).pack(
             side=tk.LEFT, expand=True, fill=tk.X)
 
@@ -2835,14 +2832,7 @@ class MainWindow:
         name = self._var_prof_select.get()
         if name:
             self._var_prof_name.set(name)
-
-    def _load_selected_profile(self) -> None:
-        name = self._var_prof_select.get()
-        if not name:
-            messagebox.showwarning("提示", "請先從下拉選單選取一個操作")
-            return
-        self._var_prof_name.set(name)
-        self._load_profile()
+            self._load_profile()
 
     def _delete_selected_profile(self) -> None:
         name = self._var_prof_select.get()
