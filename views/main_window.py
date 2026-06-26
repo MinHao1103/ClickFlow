@@ -2826,10 +2826,17 @@ class MainWindow:
             return
         try:
             self._db.delete_profile(name)
-            if self._active_profile == name:
-                self._active_profile = ""
-                self._update_active_label()
+            self._active_profile = ""  # 清空，讓 _reload_profile_list 選第一個
             self._reload_profile_list()
+            # 刪除後若仍有設定檔，自動載入第一個
+            first = self._var_prof_select.get()
+            if first:
+                self._var_prof_name.set(first)
+                self._load_profile()
+            else:
+                self._steps.clear()
+                self._refresh_list()
+                self._update_active_label()
             self._set_status(f"已刪除設定檔：{name}", "idle")
         except Exception as exc:
             logger.exception("Failed to delete profile")
@@ -2850,9 +2857,8 @@ class MainWindow:
             )
             self._active_profile = name
             self._update_active_label()
-            self._reload_profile_list()
-            self._set_status(f"已儲存設定檔：{name}", "idle")
-            messagebox.showinfo("儲存成功", f"設定檔「{name}」已儲存")
+            self._reload_profile_list()  # combobox 自動跳到剛儲存的名稱
+            self._set_status(f"✓ 已儲存設定檔：{name}", "done")
         except Exception as exc:
             logger.exception("Failed to save profile")
             messagebox.showerror("資料庫錯誤", str(exc))
