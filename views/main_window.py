@@ -2507,16 +2507,18 @@ class MainWindow:
     def _build_profile_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
-        # Name / desc stacked
-        for lbl_text, var_attr in (("名稱", "_var_prof_name"), ("描述", "_var_prof_desc")):
+        # Ensure variables exist
+        for var_attr in ("_var_prof_name", "_var_prof_desc"):
             if not hasattr(self, var_attr):
                 setattr(self, var_attr, tk.StringVar())
-            row = tk.Frame(parent, bg=_C["bg"])
-            row.pack(fill=tk.X, padx=PX, pady=(6, 3))
-            tk.Label(row, text=lbl_text, bg=_C["bg"], fg=_C["text_muted"],
-                     font=("Segoe UI", 8), width=3, anchor=tk.W).pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=getattr(self, var_attr)).pack(
-                side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Name entry only
+        row = tk.Frame(parent, bg=_C["bg"])
+        row.pack(fill=tk.X, padx=PX, pady=(6, 3))
+        tk.Label(row, text="名稱", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8), width=3, anchor=tk.W).pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=self._var_prof_name).pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
 
         tk.Label(parent, text="已儲存操作", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
