@@ -2805,11 +2805,15 @@ class MainWindow:
             return
         self._cb_profiles["values"] = names
         if self._active_profile in names:
-            self._var_prof_select.set(self._active_profile)
+            selected = self._active_profile
         elif names:
-            self._var_prof_select.set(names[0])
+            selected = names[0]
         else:
-            self._var_prof_select.set("")
+            selected = ""
+        self._var_prof_select.set(selected)
+        # 同步更新名稱欄位，讓輸入框與下拉一致
+        if hasattr(self, "_var_prof_name"):
+            self._var_prof_name.set(selected)
 
     def _on_cb_profile_select(self, _e: tk.Event) -> None:
         name = self._var_prof_select.get()
