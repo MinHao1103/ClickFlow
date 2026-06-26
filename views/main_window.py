@@ -2548,17 +2548,11 @@ class MainWindow:
     def _build_recording_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
-        self._btn_record_start = ttk.Button(
+        self._btn_record = ttk.Button(
             parent, text="●  開始錄製  [F9]",
             style="Record.TButton", command=self._start_recording,
         )
-        self._btn_record_start.pack(fill=tk.X, padx=PX, pady=(6, 2))
-
-        self._btn_record_stop = ttk.Button(
-            parent, text="■  停止錄製  [F9]",
-            style="Ghost.TButton", command=self._stop_recording, state=tk.DISABLED,
-        )
-        self._btn_record_stop.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        self._btn_record.pack(fill=tk.X, padx=PX, pady=(6, 6))
 
         # Compact options row: checkbox left, delay right
         opt = tk.Frame(parent, bg=_C["bg"])
@@ -2594,18 +2588,12 @@ class MainWindow:
         ttk.Checkbutton(rnd, text="無限循環",
                         variable=self._var_infinite).pack(side=tk.RIGHT)
 
-        self._btn_start = ttk.Button(
+        self._btn_execute = ttk.Button(
             parent, text="▶  開始  [F10]",
             style="Start.TButton", command=self._start_execution,
         )
-        self._btn_start.pack(fill=tk.X, padx=PX, pady=(0, 3))
-
-        self._btn_stop = ttk.Button(
-            parent, text="■  停止  [F10]",
-            style="Stop.TButton", command=self._stop_execution, state=tk.DISABLED,
-        )
-        self._btn_stop.pack(fill=tk.X, padx=PX)
-        _Tip(self._btn_stop, "按 Space 鍵也可立即停止")
+        self._btn_execute.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        _Tip(self._btn_execute, "按 Space 鍵也可立即停止")
 
         # Compact live-status strip (3 columns in one row)
         self._var_st_round = tk.StringVar(value="—")
@@ -2697,18 +2685,15 @@ class MainWindow:
         rounds = 0 if self._var_infinite.get() else self._parse_rounds()
         if rounds is None:
             return
-        self._btn_start.config(state=tk.DISABLED)
-        self._btn_stop.config(state=tk.NORMAL)
-        self._btn_record_start.config(state=tk.DISABLED)
-        self._btn_record_stop.config(state=tk.DISABLED)
+        self._btn_execute.config(text="■  停止  [F10]", style="Stop.TButton", command=self._stop_execution, state=tk.NORMAL)
+        self._btn_record.config(state=tk.DISABLED)
         self._set_status("執行中…", "run")
         steps = list(self._steps)
         if self._tab1_win.get("title"):
             if self._resolve_bound_window(self._tab1_win) is None:
                 messagebox.showwarning("綁定視窗", "找不到綁定的視窗，請重新整理並選擇")
-                self._btn_start.config(state=tk.NORMAL)
-                self._btn_stop.config(state=tk.DISABLED)
-                self._btn_record_start.config(state=tk.NORMAL)
+                self._btn_execute.config(text="▶  開始  [F10]", style="Start.TButton", command=self._start_execution, state=tk.NORMAL)
+                self._btn_record.config(state=tk.NORMAL)
                 self._set_status("就緒", "idle")
                 return
             from services.window_manager import get_window_rect
@@ -2790,10 +2775,8 @@ class MainWindow:
     def _on_execution_finished(self) -> None:
         def _up() -> None:
             self._close_mini()
-            self._btn_start.config(state=tk.NORMAL)
-            self._btn_stop.config(state=tk.DISABLED)
-            self._btn_record_start.config(state=tk.NORMAL)
-            self._btn_record_stop.config(state=tk.DISABLED)
+            self._btn_execute.config(text="▶  開始  [F10]", style="Start.TButton", command=self._start_execution, state=tk.NORMAL)
+            self._btn_record.config(state=tk.NORMAL)
             self._var_st_round.set("—")
             self._var_st_step.set("—")
             self._var_st_click.set("—")
@@ -2803,10 +2786,8 @@ class MainWindow:
     def _on_execution_error(self, msg: str) -> None:
         def _up() -> None:
             self._close_mini()
-            self._btn_start.config(state=tk.NORMAL)
-            self._btn_stop.config(state=tk.DISABLED)
-            self._btn_record_start.config(state=tk.NORMAL)
-            self._btn_record_stop.config(state=tk.DISABLED)
+            self._btn_execute.config(text="▶  開始  [F10]", style="Start.TButton", command=self._start_execution, state=tk.NORMAL)
+            self._btn_record.config(state=tk.NORMAL)
             self._set_status(f"執行錯誤：{msg}", "error")
             messagebox.showerror("執行錯誤", msg)
         self._root.after(0, _up)
@@ -2927,10 +2908,8 @@ class MainWindow:
         )
         self._recorder.start()
 
-        self._btn_record_start.config(state=tk.DISABLED)
-        self._btn_record_stop.config(state=tk.NORMAL)
-        self._btn_start.config(state=tk.DISABLED)
-        self._btn_stop.config(state=tk.DISABLED)
+        self._btn_record.config(text="■  停止錄製  [F9]", style="Stop.TButton", command=self._stop_recording, state=tk.NORMAL)
+        self._btn_execute.config(state=tk.DISABLED)
         self._set_status("●  錄製中…", "record")
         self._show_mini_recorder()
 
@@ -2970,10 +2949,8 @@ class MainWindow:
     def _on_recording_stopped(self) -> None:
         self._close_mini_recorder()
         self._keyboard_monitor.start()
-        self._btn_record_start.config(state=tk.NORMAL)
-        self._btn_record_stop.config(state=tk.DISABLED)
-        self._btn_start.config(state=tk.NORMAL)
-        self._btn_stop.config(state=tk.DISABLED)
+        self._btn_record.config(text="●  開始錄製  [F9]", style="Record.TButton", command=self._start_recording, state=tk.NORMAL)
+        self._btn_execute.config(state=tk.NORMAL)
         self._set_status(f"✓  錄製完成，共 {len(self._steps)} 步驟", "done")
 
     # ── helpers ───────────────────────────────────────────────────────────────
