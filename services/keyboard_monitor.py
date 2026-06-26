@@ -41,6 +41,15 @@ class KeyboardMonitor:
     def start(self) -> None:
         if self._running:
             return
+        # Sync initial state to prevent edge-triggering if keys are already held down
+        try:
+            self._space_prev = self._pressed(_VK_SPACE)
+            self._s_prev     = self._pressed(_VK_S)
+            self._f11_prev   = self._pressed(_VK_F11)
+            self._f10_prev   = self._pressed(_VK_F10)
+            self._f9_prev    = self._pressed(_VK_F9)
+        except Exception:
+            pass
         self._running = True
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="KeyboardMonitor"
