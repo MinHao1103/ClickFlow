@@ -48,20 +48,21 @@ CREATE TABLE IF NOT EXISTS scene_profiles (
 );
 
 CREATE TABLE IF NOT EXISTS scene_rules (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES scene_profiles(id),
-    order_idx  INTEGER NOT NULL DEFAULT 0,
-    name       TEXT    NOT NULL DEFAULT '',
-    image_path TEXT    NOT NULL,
-    action     TEXT    NOT NULL DEFAULT 'click',
-    confidence REAL    NOT NULL DEFAULT 0.8,
-    cooldown   REAL    NOT NULL DEFAULT 3.0,
-    enabled    INTEGER NOT NULL DEFAULT 1,
-    click_dx   INTEGER NOT NULL DEFAULT 0,
-    click_dy   INTEGER NOT NULL DEFAULT 0,
-    click_x    INTEGER,
-    click_y    INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id          INTEGER NOT NULL DEFAULT 1 REFERENCES scene_profiles(id),
+    order_idx           INTEGER NOT NULL DEFAULT 0,
+    name                TEXT    NOT NULL DEFAULT '',
+    image_path          TEXT    NOT NULL,
+    action              TEXT    NOT NULL DEFAULT 'click',
+    confidence          REAL    NOT NULL DEFAULT 0.8,
+    cooldown            REAL    NOT NULL DEFAULT 3.0,
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    click_dx            INTEGER NOT NULL DEFAULT 0,
+    click_dy            INTEGER NOT NULL DEFAULT 0,
+    click_x             INTEGER,
+    click_y             INTEGER,
+    target_profile_name TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS orb_configs (
@@ -93,11 +94,12 @@ class DatabaseManager:
                 conn.executescript(_DDL)
                 # Migration: add columns to scene_rules added in later versions
                 existing = {r[1] for r in conn.execute("PRAGMA table_info(scene_rules)")}
-                for col, ddl in [("click_dx",   "INTEGER NOT NULL DEFAULT 0"),
-                                  ("click_dy",   "INTEGER NOT NULL DEFAULT 0"),
-                                  ("click_x",    "INTEGER"),
-                                  ("click_y",    "INTEGER"),
-                                  ("profile_id", "INTEGER NOT NULL DEFAULT 1")]:
+                for col, ddl in [("click_dx",            "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_dy",            "INTEGER NOT NULL DEFAULT 0"),
+                                  ("click_x",             "INTEGER"),
+                                  ("click_y",             "INTEGER"),
+                                  ("profile_id",          "INTEGER NOT NULL DEFAULT 1"),
+                                  ("target_profile_name", "TEXT")]:
                     if col not in existing:
                         conn.execute(f"ALTER TABLE scene_rules ADD COLUMN {col} {ddl}")
                 # Migration: rename legacy '預設' → '摩靈傳說'
@@ -307,12 +309,13 @@ class DatabaseManager:
                     """INSERT INTO scene_rules
                        (profile_id, order_idx, name, image_path, action,
                         confidence, cooldown, enabled,
-                        click_dx, click_dy, click_x, click_y)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        click_dx, click_dy, click_x, click_y, target_profile_name)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     [
                         (pid, i, r.name, r.image_path, r.action,
                          r.confidence, r.cooldown, int(r.enabled),
-                         r.click_dx, r.click_dy, r.click_x, r.click_y)
+                         r.click_dx, r.click_dy, r.click_x, r.click_y,
+                         r.target_profile_name)
                         for i, r in enumerate(rules)
                     ],
                 )
@@ -347,6 +350,7 @@ class DatabaseManager:
                     click_dy=r["click_dy"],
                     click_x=r["click_x"],
                     click_y=r["click_y"],
+                    target_profile_name=r["target_profile_name"],
                 )
                 for r in rows
             ]

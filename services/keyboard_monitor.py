@@ -8,7 +8,9 @@ logger = logging.getLogger(__name__)
 
 _VK_SPACE = 0x20
 _VK_S     = 0x53
-_VK_F8    = 0x77
+_VK_F11   = 0x7A
+_VK_F10   = 0x79
+_VK_F9    = 0x78
 
 
 class KeyboardMonitor:
@@ -19,16 +21,22 @@ class KeyboardMonitor:
         on_stop: Callable[[], None],
         on_capture: Callable[[], None],
         on_orb_solve: Callable[[], None] | None = None,
+        on_record_toggle: Callable[[], None] | None = None,
+        on_run_toggle: Callable[[], None] | None = None,
     ):
-        self._on_stop      = on_stop
-        self._on_capture   = on_capture
-        self._on_orb_solve = on_orb_solve
+        self._on_stop          = on_stop
+        self._on_capture       = on_capture
+        self._on_orb_solve     = on_orb_solve
+        self._on_record_toggle = on_record_toggle
+        self._on_run_toggle    = on_run_toggle
         self._running = False
         self._thread: threading.Thread | None = None
         self._user32 = ctypes.windll.user32
         self._space_prev = False
         self._s_prev     = False
-        self._f8_prev    = False
+        self._f11_prev   = False
+        self._f10_prev   = False
+        self._f9_prev    = False
 
     def start(self) -> None:
         if self._running:
@@ -59,10 +67,20 @@ class KeyboardMonitor:
                     self._on_capture()
                 self._s_prev = s_now
 
-                f8_now = self._pressed(_VK_F8)
-                if f8_now and not self._f8_prev and self._on_orb_solve:
+                f11_now = self._pressed(_VK_F11)
+                if f11_now and not self._f11_prev and self._on_orb_solve:
                     self._on_orb_solve()
-                self._f8_prev = f8_now
+                self._f11_prev = f11_now
+
+                f10_now = self._pressed(_VK_F10)
+                if f10_now and not self._f10_prev and self._on_run_toggle:
+                    self._on_run_toggle()
+                self._f10_prev = f10_now
+
+                f9_now = self._pressed(_VK_F9)
+                if f9_now and not self._f9_prev and self._on_record_toggle:
+                    self._on_record_toggle()
+                self._f9_prev = f9_now
             except Exception:
                 logger.exception("KeyboardMonitor poll error")
             time.sleep(0.05)

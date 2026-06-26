@@ -566,6 +566,8 @@ class MainWindow:
             on_stop=self._stop_execution,
             on_capture=self._capture_position,
             on_orb_solve=self._orb_execute,
+            on_record_toggle=self._toggle_recording,
+            on_run_toggle=self._toggle_execution,
         )
 
         # ── Tab 3 scene-runner state ─────────────────────────────────────────
@@ -587,7 +589,6 @@ class MainWindow:
         self._apply_styles()
         self._build_window()
         self._build_ui()
-        self._apply_action_state()
         self._refresh_list()          # show empty-state immediately
         self._reload_profile_list()
         try:
@@ -832,23 +833,18 @@ class MainWindow:
         mid = ttk.Frame(parent)
         mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
         mid.rowconfigure(0, weight=1)
-        # Three columns: left(1) + center(2) + right(1) — proportional, all scalable
-        mid.columnconfigure(0, weight=1, minsize=240)
-        mid.columnconfigure(1, weight=2, minsize=160)
-        mid.columnconfigure(2, weight=1, minsize=230)
+        # Two columns: left (scalable step sequence) + right (fixed control panel)
+        mid.columnconfigure(0, weight=3, minsize=400)
+        mid.columnconfigure(1, weight=1, minsize=240)
 
-        left = ttk.LabelFrame(mid, text="  步驟編輯器")
+        left = ttk.LabelFrame(mid, text="  步驟序列")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        self._build_step_editor(left)
-
-        center = ttk.LabelFrame(mid, text="  步驟序列")
-        center.grid(row=0, column=1, sticky="nsew", padx=4)
-        center.rowconfigure(0, weight=1)
-        center.columnconfigure(0, weight=1)
-        self._build_step_sequence(center)
+        left.rowconfigure(0, weight=1)
+        left.columnconfigure(0, weight=1)
+        self._build_step_sequence(left)
 
         right = ttk.LabelFrame(mid, text="  控制台")
-        right.grid(row=0, column=2, sticky="nsew", padx=(4, 0))
+        right.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         self._build_execution_panel(right)
 
     def _build_orb_tab(self, parent: ttk.Frame) -> None:
@@ -2130,174 +2126,19 @@ class MainWindow:
 
     # ── step editor ───────────────────────────────────────────────────────────
 
-    def _build_step_editor(self, parent: ttk.LabelFrame) -> None:
-        # ── Action type ──
-        self._mk_field_label(parent, "動作類型")
-        self._var_action = tk.StringVar(value="click")
-        self._combo_action = ttk.Combobox(
-            parent, textvariable=self._var_action,
-            values=_ACTION_TYPES, state="readonly", width=18,
+    def _add_step_manually(self) -> None:
+        def on_save(new_step: "ClickStep"):
+            self._steps.append(new_step)
+            self._refresh_list()
+            self._set_status(f"已手動新增步驟", "done")
+
+        _StepEditorDialog(
+            parent=self,
+            step=None,
+            step_number=len(self._steps) + 1,
+            binding=self._tab1_win,
+            on_save=on_save
         )
-        self._combo_action.pack(fill=tk.X, padx=10, pady=(2, 6))
-        self._combo_action.bind(
-            "<<ComboboxSelected>>", lambda _: self._apply_action_state()
-        )
-
-        self._mk_divider(parent)
-
-        # ── Coordinates ──
-        self._mk_field_label(parent, "座標")
-        row = tk.Frame(parent, bg=_C["bg"])
-        row.pack(fill=tk.X, padx=10, pady=(2, 6))
-
-        tk.Label(row, text="X", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
-        self._var_x = tk.StringVar()
-        self._var_x.trace_add("write", lambda *_: self._auto_norm(self._var_x))
-        self._ent_x = self._numeric_entry(row, self._var_x, width=7)
-        self._ent_x.pack(side=tk.LEFT, padx=(3, 14))
-
-        tk.Label(row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
-        self._var_y = tk.StringVar()
-        self._var_y.trace_add("write", lambda *_: self._auto_norm(self._var_y))
-        self._ent_y = self._numeric_entry(row, self._var_y, width=7)
-        self._ent_y.pack(side=tk.LEFT, padx=(3, 0))
-
-        self._mk_divider(parent)
-
-        # ── Count ──
-        self._mk_field_label(parent, "執行次數")
-        row_cnt = tk.Frame(parent, bg=_C["bg"])
-        row_cnt.pack(fill=tk.X, padx=10, pady=(2, 6))
-        tk.Label(row_cnt, text="×", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
-        self._var_count = tk.StringVar(value="1")
-        self._var_count.trace_add("write", lambda *_: self._auto_norm(self._var_count))
-        self._numeric_entry(row_cnt, self._var_count, width=8).pack(side=tk.LEFT, padx=(3, 4))
-        tk.Label(row_cnt, text="次", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-
-        self._mk_divider(parent)
-
-        # ── Delay ──
-        self._mk_field_label(parent, "步驟延遲")
-        row_dly = tk.Frame(parent, bg=_C["bg"])
-        row_dly.pack(fill=tk.X, padx=10, pady=(2, 6))
-        tk.Label(row_dly, text="⏱", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
-        self._var_delay = tk.StringVar(value="0")
-        self._var_delay.trace_add("write", lambda *_: self._auto_norm(self._var_delay))
-        self._numeric_entry(row_dly, self._var_delay, width=8).pack(
-            side=tk.LEFT, padx=(3, 4))
-        tk.Label(row_dly, text="秒", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-
-        self._mk_divider(parent)
-
-        # ── Keyboard / Hotkey ──
-        self._mk_field_label(parent, "文字 / 按鍵組合")
-        self._var_kb = tk.StringVar()
-        self._ent_kb = ttk.Entry(parent, textvariable=self._var_kb, width=22)
-        self._ent_kb.pack(fill=tk.X, padx=10, pady=(2, 2))
-        self._lbl_kb_hint = tk.Label(
-            parent, text="", bg=_C["bg"],
-            fg=_C["text_muted"], font=("Segoe UI", 8, "italic"),
-        )
-        self._lbl_kb_hint.pack(anchor=tk.W, padx=11, pady=(0, 6))
-
-        self._mk_divider(parent)
-
-        # ── Drag params (hidden until drag is selected) ──
-        self._frm_drag = tk.Frame(parent, bg=_C["bg"])
-
-        tk.Label(self._frm_drag, text="終點座標", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold")).pack(
-            anchor=tk.W, padx=10, pady=(8, 0))
-        drag_row = tk.Frame(self._frm_drag, bg=_C["bg"])
-        drag_row.pack(fill=tk.X, padx=10, pady=(2, 4))
-        tk.Label(drag_row, text="X", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
-        self._var_drag_x = tk.StringVar()
-        self._var_drag_x.trace_add("write", lambda *_: self._auto_norm(self._var_drag_x))
-        self._numeric_entry(drag_row, self._var_drag_x, width=7).pack(side=tk.LEFT, padx=(3, 14))
-        tk.Label(drag_row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
-        self._var_drag_y = tk.StringVar()
-        self._var_drag_y.trace_add("write", lambda *_: self._auto_norm(self._var_drag_y))
-        self._numeric_entry(drag_row, self._var_drag_y, width=7).pack(side=tk.LEFT, padx=(3, 0))
-
-        dur_row = tk.Frame(self._frm_drag, bg=_C["bg"])
-        dur_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-        tk.Label(dur_row, text="耗時", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._var_drag_dur = tk.StringVar(value="0.3")
-        self._var_drag_dur.trace_add("write", lambda *_: self._auto_norm(self._var_drag_dur))
-        self._numeric_entry(dur_row, self._var_drag_dur, width=6).pack(side=tk.LEFT, padx=(6, 0))
-        tk.Label(dur_row, text="秒", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(4, 0))
-
-        # ── Image click params (hidden until image_click is selected) ──
-        self._frm_img = tk.Frame(parent, bg=_C["bg"])
-        # Not packed yet; _apply_action_state controls visibility
-
-        self._var_img_path = tk.StringVar(value="")
-        path_row = tk.Frame(self._frm_img, bg=_C["bg"])
-        path_row.pack(fill=tk.X, padx=10, pady=(6, 2))
-        tk.Label(path_row, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9), width=4, anchor=tk.W).pack(side=tk.LEFT)
-        self._lbl_img_name = tk.Label(
-            path_row, textvariable=self._var_img_path,
-            bg=_C["bg"], fg=_C["accent"], font=("Consolas", 8),
-            anchor=tk.W, wraplength=160)
-        self._lbl_img_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        ttk.Button(self._frm_img, text="📷  截取區域",
-                   style="Accent.TButton",
-                   command=self._capture_region).pack(
-            fill=tk.X, padx=10, pady=(0, 4))
-
-        self._lbl_img_preview = tk.Label(self._frm_img, bg=_C["card"],
-                                          relief="flat", borderwidth=0)
-        self._lbl_img_preview.pack(padx=10, pady=(0, 4))
-        self._img_preview_tk = None
-
-        conf_row = tk.Frame(self._frm_img, bg=_C["bg"])
-        conf_row.pack(fill=tk.X, padx=10, pady=(0, 2))
-        tk.Label(conf_row, text="相似度", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._var_conf = tk.StringVar(value="0.85")
-        self._numeric_entry(conf_row, self._var_conf, width=5).pack(
-            side=tk.LEFT, padx=(6, 0))
-        tk.Label(conf_row, text="（0.1–1.0）", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
-
-        tout_row = tk.Frame(self._frm_img, bg=_C["bg"])
-        tout_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-        tk.Label(tout_row, text="超時", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._var_timeout = tk.StringVar(value="10")
-        self._numeric_entry(tout_row, self._var_timeout, width=5).pack(
-            side=tk.LEFT, padx=(6, 0))
-        tk.Label(tout_row, text="秒（找不到圖片則報錯）", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
-
-        # ── Buttons ──
-        self._btn_area = tk.Frame(parent, bg=_C["bg"])
-        btn_area = self._btn_area
-        btn_area.pack(fill=tk.X, padx=10, pady=(8, 10))
-
-        self._btn_commit = ttk.Button(
-            btn_area, text="＋  新增步驟",
-            style="Accent.TButton", command=self._commit_step,
-        )
-        self._btn_commit.pack(fill=tk.X, pady=(0, 5))
-
-        self._btn_cancel = ttk.Button(
-            btn_area, text="✕  取消編輯",
-            style="Ghost.TButton", command=self._cancel_edit, state=tk.DISABLED,
-        )
-        self._btn_cancel.pack(fill=tk.X)
 
     def _mk_field_label(self, parent: tk.Widget, text: str) -> None:
         tk.Label(parent, text=text.upper(), bg=_C["bg"],
@@ -2307,63 +2148,6 @@ class MainWindow:
     def _mk_divider(self, parent: tk.Widget) -> None:
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(
             fill=tk.X, padx=10, pady=4)
-
-    def _apply_action_state(self) -> None:
-        action = self._var_action.get()
-        coord = tk.NORMAL if action in _COORD_ACTIONS else tk.DISABLED
-        kb    = tk.NORMAL if action in _KB_ACTIONS    else tk.DISABLED
-        self._ent_x.config(state=coord)
-        self._ent_y.config(state=coord)
-        self._ent_kb.config(state=kb)
-        if action == "hotkey":
-            hint = "格式: ctrl+c  /  alt+F4  /  ctrl+shift+s"
-        elif action == "keyboard_input":
-            hint = "輸入要打出的文字內容"
-        else:
-            hint = ""
-        self._lbl_kb_hint.config(text=hint)
-        if action in _DRAG_ACTIONS:
-            self._frm_drag.pack(fill=tk.X, before=self._btn_area)
-        else:
-            self._frm_drag.pack_forget()
-        if action in _IMG_ACTIONS:
-            self._frm_img.pack(fill=tk.X, before=self._btn_area)
-        else:
-            self._frm_img.pack_forget()
-
-    # ── commit / parse / clear ────────────────────────────────────────────────
-
-    def _commit_step(self) -> None:
-        try:
-            step = self._parse_step()
-        except ValueError as exc:
-            messagebox.showerror("輸入錯誤", str(exc))
-            return
-        if self._edit_index is None:
-            self._steps.append(step)
-        else:
-            self._steps[self._edit_index] = step
-            self._exit_edit_mode()
-        self._refresh_list()
-
-    def _cancel_edit(self) -> None:
-        self._exit_edit_mode()
-        self._clear_fields()
-
-    def _exit_edit_mode(self) -> None:
-        self._edit_index = None
-        self._btn_commit.config(text="＋  新增步驟")
-        self._btn_cancel.config(state=tk.DISABLED)
-
-    @staticmethod
-    def _norm(s: str) -> str:
-        return s.strip().replace("。", ".").replace("．", ".").replace("，", ",")
-
-    def _auto_norm(self, var: tk.StringVar) -> None:
-        val = var.get()
-        new_val = val.replace("。", ".").replace("．", ".")
-        if new_val != val:
-            var.set(new_val)
 
     @staticmethod
     def _disable_ime(widget: tk.Widget) -> None:
@@ -2383,98 +2167,35 @@ class MainWindow:
         e.bind("<Map>", lambda _evt, w=e: self._disable_ime(w))
         return e
 
-    def _parse_step(self) -> ClickStep:
-        action = self._var_action.get()
-        x, y = 0, 0
-        if action in _COORD_ACTIONS:
-            try:
-                x = int(self._norm(self._var_x.get()))
-                y = int(self._norm(self._var_y.get()))
-            except ValueError:
-                raise ValueError("X / Y 必須為整數")
-        try:
-            count = int(self._norm(self._var_count.get()))
-            if count < 1:
-                raise ValueError()
-        except ValueError:
-            raise ValueError("Count 必須為 ≥ 1 的整數")
-        try:
-            delay = float(self._norm(self._var_delay.get()))
-            if delay < 0:
-                raise ValueError()
-        except ValueError:
-            raise ValueError("Delay 必須為 ≥ 0 的數值")
-        kb = self._var_kb.get().strip() or None
+    @staticmethod
+    def _norm(s: str) -> str:
+        return s.strip().replace("。", ".").replace("．", ".").replace("，", ",")
 
-        if action in _DRAG_ACTIONS:
-            import json as _json
-            try:
-                tx = int(self._norm(self._var_drag_x.get()))
-                ty = int(self._norm(self._var_drag_y.get()))
-            except ValueError:
-                raise ValueError("終點 X / Y 必須為整數")
-            try:
-                dur = float(self._norm(self._var_drag_dur.get()) or "0.3")
-                if dur <= 0:
-                    raise ValueError()
-            except ValueError:
-                raise ValueError("耗時必須為大於 0 的數字")
-            return ClickStep(
-                x=x, y=y, count=count, delay=delay,
-                action_type="drag",
-                extra_json=_json.dumps(
-                    {"to_x": tx, "to_y": ty, "duration": dur},
-                    ensure_ascii=False,
-                ),
-            )
+    def _auto_norm(self, var: tk.StringVar) -> None:
+        val = var.get()
+        new_val = val.replace("。", ".").replace("．", ".")
+        if new_val != val:
+            var.set(new_val)
 
-        if action in _IMG_ACTIONS:
-            import json as _json
-            path = self._var_img_path.get().strip()
-            if not path:
-                raise ValueError("請先按「截取區域」選取參考圖片")
-            import os as _os
-            if not _os.path.isfile(path):
-                raise ValueError(f"圖片檔案不存在：{path}")
-            try:
-                conf = float(self._norm(self._var_conf.get()) or "0.85")
-                conf = max(0.1, min(1.0, conf))
-            except ValueError:
-                raise ValueError("相似度請輸入 0.1–1.0 之間的數字")
-            try:
-                timeout = float(self._norm(self._var_timeout.get()) or "10")
-                if timeout <= 0:
-                    raise ValueError()
-            except ValueError:
-                raise ValueError("超時秒數請輸入大於 0 的數字")
-            return ClickStep(
-                action_type="image_click",
-                delay=delay,
-                extra_json=_json.dumps(
-                    {"path": path, "confidence": conf, "timeout": timeout},
-                    ensure_ascii=False,
-                ),
-            )
+    def _toggle_recording(self) -> None:
+        self._root.after(0, self._hotkey_toggle_recording)
 
-        return ClickStep(x=x, y=y, count=count, delay=delay,
-                         action_type=action, keyboard_text=kb)
+    def _hotkey_toggle_recording(self) -> None:
+        if self._recorder and self._recorder.is_recording:
+            self._stop_recording()
+        else:
+            self._start_recording()
 
-    def _clear_fields(self) -> None:
-        self._var_action.set("click")
-        self._var_x.set("")
-        self._var_y.set("")
-        self._var_count.set("1")
-        self._var_delay.set("0")
-        self._var_kb.set("")
-        self._var_drag_x.set("")
-        self._var_drag_y.set("")
-        self._var_drag_dur.set("0.3")
-        self._var_img_path.set("")
-        self._var_conf.set("0.85")
-        self._var_timeout.set("10")
-        self._lbl_img_preview.config(image="")
-        self._img_preview_tk = None
-        self._apply_action_state()
+    def _toggle_execution(self) -> None:
+        self._root.after(0, self._hotkey_toggle_execution)
+
+    def _hotkey_toggle_execution(self) -> None:
+        if self._executor.is_running:
+            self._stop_execution()
+        else:
+            self._start_execution()
+
+
 
     # ── step sequence ─────────────────────────────────────────────────────────
 
@@ -2534,6 +2255,8 @@ class MainWindow:
         # action buttons — safe actions left, destructive right with visual gap
         btn = tk.Frame(parent, bg=_C["bg"])
         btn.pack(fill=tk.X, padx=8, pady=6)
+        ttk.Button(btn, text="＋ 新增步驟", style="Accent.TButton",
+                   command=self._add_step_manually).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(btn, text="↑ 上移", style="Ghost.TButton",
                    command=self._move_up).pack(side=tk.LEFT, padx=(0, 3))
         ttk.Button(btn, text="↓ 下移", style="Ghost.TButton",
@@ -2572,33 +2295,19 @@ class MainWindow:
             return
         idx  = sel[0]
         step = self._steps[idx]
-        self._edit_index = idx
-        # enable all before setting values
-        for w in (self._ent_x, self._ent_y, self._ent_kb):
-            w.config(state=tk.NORMAL)
-        self._var_action.set(step.action_type)
-        self._var_x.set(str(step.x))
-        self._var_y.set(str(step.y))
-        self._var_count.set(str(step.count))
-        self._var_delay.set(str(step.delay))
-        self._var_kb.set(step.keyboard_text or "")
-        if step.action_type in _DRAG_ACTIONS:
-            import json as _json
-            p = _json.loads(step.extra_json or "{}")
-            self._var_drag_x.set(str(p.get("to_x", "")))
-            self._var_drag_y.set(str(p.get("to_y", "")))
-            self._var_drag_dur.set(str(p.get("duration", 0.3)))
-        if step.action_type in _IMG_ACTIONS:
-            import json as _json
-            p = _json.loads(step.extra_json or "{}")
-            self._var_img_path.set(p.get("path", ""))
-            self._var_conf.set(str(p.get("confidence", 0.85)))
-            self._var_timeout.set(str(p.get("timeout", 10)))
-            if p.get("path"):
-                self._update_img_preview(p["path"])
-        self._apply_action_state()
-        self._btn_commit.config(text="✓  更新步驟")
-        self._btn_cancel.config(state=tk.NORMAL)
+
+        def on_save(updated_step: "ClickStep"):
+            self._steps[idx] = updated_step
+            self._refresh_list()
+            self._set_status(f"已更新步驟 #{idx + 1}", "done")
+
+        _StepEditorDialog(
+            parent=self,
+            step=step,
+            step_number=idx + 1,
+            binding=self._tab1_win,
+            on_save=on_save
+        )
 
     def _move_up(self) -> None:
         sel = self._listbox.curselection()
@@ -2802,7 +2511,7 @@ class MainWindow:
         _sec_header(_C["danger"], "錄製操作")
 
         self._btn_record_start = ttk.Button(
-            parent, text="●  開始錄製",
+            parent, text="●  開始錄製  [F9]",
             style="Record.TButton", command=self._start_recording,
         )
         self._btn_record_start.pack(fill=tk.X, padx=PX, pady=(0, 2))
@@ -2846,13 +2555,13 @@ class MainWindow:
                         variable=self._var_infinite).pack(side=tk.RIGHT)
 
         self._btn_start = ttk.Button(
-            parent, text="▶  開始",
+            parent, text="▶  開始  [F10]",
             style="Start.TButton", command=self._start_execution,
         )
         self._btn_start.pack(fill=tk.X, padx=PX, pady=(0, 3))
 
         self._btn_stop = ttk.Button(
-            parent, text="■  停止",
+            parent, text="■  停止  [F10]",
             style="Stop.TButton", command=self._stop_execution, state=tk.DISABLED,
         )
         self._btn_stop.pack(fill=tk.X, padx=PX)
@@ -3328,3 +3037,706 @@ class MainWindow:
             self._recorder.stop()
         logger.info("Program Exit")
         self._root.destroy()
+
+
+# ── Coordinate Picker Overlay ────────────────────────────────────────────────
+class _CoordinatePicker:
+    def __init__(self, root: tk.Tk, on_done: callable, text: str = "📍 請在螢幕上點擊要擷取的座標   |   Esc 取消") -> None:
+        self._on_done = on_done
+        self._win = tk.Toplevel(root)
+        self._win.overrideredirect(True)
+        self._win.wm_attributes("-topmost", True)
+        self._win.wm_attributes("-alpha", 0.3)  # 半透明
+        
+        lw = root.winfo_screenwidth()
+        lh = root.winfo_screenheight()
+        self._win.geometry(f"{lw}x{lh}+0+0")
+        
+        canvas = tk.Canvas(self._win, width=lw, height=lh,
+                           cursor="crosshair", highlightthickness=0, bg="black")
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(self._win,
+                 text=text,
+                 bg="#0f172a", fg="#94a3b8",
+                 font=("Segoe UI", 12, "bold")).place(x=lw // 2, y=24, anchor="n")
+        
+        canvas.bind("<ButtonPress-1>", self._click)
+        self._win.bind("<Escape>", lambda _: self._cancel())
+        self._win.bind("<Key-s>", lambda _: self._click_at_current_mouse())
+        self._win.focus_force()
+
+    def _click(self, e: tk.Event) -> None:
+        x, y = e.x_root, e.y_root
+        self._win.destroy()
+        self._on_done(x, y)
+
+    def _click_at_current_mouse(self) -> None:
+        import pyautogui
+        x, y = pyautogui.position()
+        self._win.destroy()
+        self._on_done(x, y)
+
+    def _cancel(self) -> None:
+        self._win.destroy()
+        self._on_done(None, None)
+
+
+# ── Step Editor Dialog ───────────────────────────────────────────────────────
+class _StepEditorDialog(tk.Toplevel):
+    def __init__(self, parent: "MainWindow", step: Optional["ClickStep"] = None,
+                 step_number: Optional[int] = None, binding: Optional[dict] = None,
+                 on_save: Optional[Callable[["ClickStep"], None]] = None) -> None:
+        super().__init__(parent._root)
+        self._parent = parent
+        self._step = step
+        self._step_number = step_number
+        self._binding = binding or {}
+        self._on_save = on_save
+
+        self.title("新增步驟" if step is None else f"編輯步驟 #{step_number}")
+        self.configure(bg=_C["bg"])
+        self.resizable(False, False)
+        
+        # 設為模態
+        self.transient(parent._root)
+        self.grab_set()
+
+        # 變數宣告
+        self._var_action = tk.StringVar(value="click")
+        self._var_x = tk.StringVar()
+        self._var_y = tk.StringVar()
+        self._var_count = tk.StringVar(value="1")
+        self._var_delay = tk.StringVar(value="0.0")
+        self._var_kb = tk.StringVar()
+        
+        self._var_drag_x = tk.StringVar()
+        self._var_drag_y = tk.StringVar()
+        self._var_drag_dur = tk.StringVar(value="0.3")
+        
+        self._var_img_path = tk.StringVar()
+        self._var_conf = tk.StringVar(value="0.85")
+        self._var_timeout = tk.StringVar(value="10")
+        
+        self._var_goto_target = tk.StringVar(value="1")
+        self._img_preview_tk = None
+
+        # Trace auto-normalisation
+        self._var_x.trace_add("write", lambda *_: self._auto_norm(self._var_x))
+        self._var_y.trace_add("write", lambda *_: self._auto_norm(self._var_y))
+        self._var_count.trace_add("write", lambda *_: self._auto_norm(self._var_count))
+        self._var_delay.trace_add("write", lambda *_: self._auto_norm(self._var_delay))
+        self._var_drag_x.trace_add("write", lambda *_: self._auto_norm(self._var_drag_x))
+        self._var_drag_y.trace_add("write", lambda *_: self._auto_norm(self._var_drag_y))
+        self._var_drag_dur.trace_add("write", lambda *_: self._auto_norm(self._var_drag_dur))
+        self._var_conf.trace_add("write", lambda *_: self._auto_norm(self._var_conf))
+        self._var_timeout.trace_add("write", lambda *_: self._auto_norm(self._var_timeout))
+
+        self._build_ui()
+
+        combo_values = [
+            "click", "double_click", "right_click",
+            "move", "delay", "image_click", "drag",
+            "goto", "if_image_exists", "label",
+        ]
+        if step and step.action_type not in combo_values:
+            combo_values.append(step.action_type)
+        self._combo_action["values"] = combo_values
+        
+        if step:
+            self._load_step(step)
+
+        # 監聽關閉事件，釋放 grab
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+        # 置中對齊
+        self.update_idletasks()
+        self._recenter()
+
+    def _recenter(self) -> None:
+        w = self.winfo_reqwidth()
+        h = self.winfo_reqheight()
+        w = max(w, 380)
+        px = self._parent._root.winfo_x()
+        py = self._parent._root.winfo_y()
+        pw = self._parent._root.winfo_width()
+        ph = self._parent._root.winfo_height()
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _build_ui(self) -> None:
+        main_frm = tk.Frame(self, bg=_C["bg"])
+        main_frm.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+
+        # ── Action type ──
+        self._mk_field_label(main_frm, "動作類型")
+        self._combo_action = ttk.Combobox(
+            main_frm, textvariable=self._var_action,
+            values=[], state="readonly", width=22,
+        )
+        self._combo_action.pack(fill=tk.X, pady=(2, 6))
+        self._combo_action.bind(
+            "<<ComboboxSelected>>", lambda _: self._apply_action_state()
+        )
+
+        self._divider = ttk.Separator(main_frm, orient=tk.HORIZONTAL)
+        self._divider.pack(fill=tk.X, pady=6)
+
+        # ── Coordinates Frame ──
+        self._frm_coords = tk.Frame(main_frm, bg=_C["bg"])
+        self._mk_field_label(self._frm_coords, "座標")
+        row = tk.Frame(self._frm_coords, bg=_C["bg"])
+        row.pack(fill=tk.X, pady=(2, 6))
+        
+        tk.Label(row, text="X", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._ent_x = self._numeric_entry(row, self._var_x, width=7)
+        self._ent_x.pack(side=tk.LEFT, padx=(3, 10))
+        
+        tk.Label(row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._ent_y = self._numeric_entry(row, self._var_y, width=7)
+        self._ent_y.pack(side=tk.LEFT, padx=(3, 10))
+        
+        btn_pick = ttk.Button(row, text="📍 擷取", style="Ghost.TButton",
+                               command=self._capture_position)
+        btn_pick.pack(side=tk.LEFT)
+        _Tip(btn_pick, "點擊後在螢幕上點選目標位置，或按 S 鍵快速擷取")
+
+        # ── Count Frame ──
+        self._frm_count = tk.Frame(main_frm, bg=_C["bg"])
+        self._mk_field_label(self._frm_count, "執行次數")
+        row_cnt = tk.Frame(self._frm_count, bg=_C["bg"])
+        row_cnt.pack(fill=tk.X, pady=(2, 6))
+        tk.Label(row_cnt, text="×", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
+        self._numeric_entry(row_cnt, self._var_count, width=8).pack(side=tk.LEFT, padx=(3, 4))
+        tk.Label(row_cnt, text="次", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        # ── Delay Frame ──
+        self._frm_delay = tk.Frame(main_frm, bg=_C["bg"])
+        self._mk_field_label(self._frm_delay, "步驟延遲")
+        row_dly = tk.Frame(self._frm_delay, bg=_C["bg"])
+        row_dly.pack(fill=tk.X, pady=(2, 6))
+        tk.Label(row_dly, text="⏱", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 10), width=2).pack(side=tk.LEFT)
+        self._numeric_entry(row_dly, self._var_delay, width=8).pack(side=tk.LEFT, padx=(3, 4))
+        tk.Label(row_dly, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+
+        # ── Keyboard / Hotkey / Label Frame ──
+        self._frm_kb = tk.Frame(main_frm, bg=_C["bg"])
+        self._lbl_kb_title = tk.Label(self._frm_kb, text="文字 / 按鍵組合", bg=_C["bg"],
+                                      fg=_C["text_muted"], font=("Segoe UI", 9, "bold"))
+        self._lbl_kb_title.pack(anchor=tk.W, pady=(6, 0))
+        self._ent_kb = ttk.Entry(self._frm_kb, textvariable=self._var_kb, width=22)
+        self._ent_kb.pack(fill=tk.X, pady=(2, 2))
+        self._lbl_kb_hint = tk.Label(
+            self._frm_kb, text="", bg=_C["bg"],
+            fg=_C["text_muted"], font=("Segoe UI", 8, "italic"),
+        )
+        self._lbl_kb_hint.pack(anchor=tk.W, pady=(0, 6))
+
+        # ── Drag params ──
+        self._frm_drag = tk.Frame(main_frm, bg=_C["bg"])
+        self._mk_field_label(self._frm_drag, "終點座標")
+        drag_row = tk.Frame(self._frm_drag, bg=_C["bg"])
+        drag_row.pack(fill=tk.X, pady=(2, 4))
+        tk.Label(drag_row, text="X", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._numeric_entry(drag_row, self._var_drag_x, width=7).pack(side=tk.LEFT, padx=(3, 10))
+        tk.Label(drag_row, text="Y", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
+        self._numeric_entry(drag_row, self._var_drag_y, width=7).pack(side=tk.LEFT, padx=(3, 10))
+        
+        btn_pick_drag = ttk.Button(drag_row, text="📍 終點", style="Ghost.TButton",
+                                    command=self._capture_drag_destination)
+        btn_pick_drag.pack(side=tk.LEFT)
+
+        dur_row = tk.Frame(self._frm_drag, bg=_C["bg"])
+        dur_row.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(dur_row, text="耗時", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._numeric_entry(dur_row, self._var_drag_dur, width=6).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Label(dur_row, text="秒", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(4, 0))
+
+        # ── Image click params ──
+        self._frm_img = tk.Frame(main_frm, bg=_C["bg"])
+        path_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        path_row.pack(fill=tk.X, pady=(6, 2))
+        tk.Label(path_row, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9), width=4, anchor=tk.W).pack(side=tk.LEFT)
+        self._lbl_img_name = tk.Label(
+            path_row, textvariable=self._var_img_path,
+            bg=_C["bg"], fg=_C["accent"], font=("Consolas", 8),
+            anchor=tk.W, wraplength=260)
+        self._lbl_img_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        row_img_btns = tk.Frame(self._frm_img, bg=_C["bg"])
+        row_img_btns.pack(fill=tk.X, pady=(0, 4))
+        
+        ttk.Button(row_img_btns, text="📷  截取區域",
+                   style="Accent.TButton",
+                   command=self._capture_region).pack(
+                       side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2)
+                   )
+        ttk.Button(row_img_btns, text="🔴  錄製影像",
+                   style="Record.TButton",
+                   command=self._editor_record_click).pack(
+                       side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0)
+                   )
+
+        self._lbl_img_preview = tk.Label(self._frm_img, bg=_C["card"],
+                                          relief="flat", borderwidth=0)
+        self._lbl_img_preview.pack(pady=(0, 4))
+
+        conf_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        conf_row.pack(fill=tk.X, pady=(0, 2))
+        tk.Label(conf_row, text="相似度", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._numeric_entry(conf_row, self._var_conf, width=5).pack(
+            side=tk.LEFT, padx=(6, 0))
+        tk.Label(conf_row, text="（0.1–1.0）", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
+
+        tout_row = tk.Frame(self._frm_img, bg=_C["bg"])
+        tout_row.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(tout_row, text="超時", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._numeric_entry(tout_row, self._var_timeout, width=5).pack(
+            side=tk.LEFT, padx=(6, 0))
+        tk.Label(tout_row, text="秒（找不到圖片則報錯）", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(4, 0))
+
+        # ── Jump params ──
+        self._frm_jump = tk.Frame(main_frm, bg=_C["bg"])
+        self._mk_field_label(self._frm_jump, "跳轉目標（標籤或步驟）")
+        row_jump = tk.Frame(self._frm_jump, bg=_C["bg"])
+        row_jump.pack(fill=tk.X, pady=(2, 6))
+        tk.Label(row_jump, text="👉 跳至", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self._combo_goto_target = ttk.Combobox(
+            row_jump, textvariable=self._var_goto_target,
+            font=("Segoe UI", 9), width=18,
+            postcommand=self._refresh_goto_targets
+        )
+        self._combo_goto_target.pack(side=tk.LEFT, padx=(6, 4))
+
+        # ── Dialog Buttons ──
+        self._frm_buttons = tk.Frame(main_frm, bg=_C["bg"])
+        self._frm_buttons.pack(fill=tk.X, pady=(15, 0))
+
+        self._btn_save = ttk.Button(
+            self._frm_buttons, text="✓  儲存設定",
+            style="Accent.TButton", command=self._on_save_clicked,
+        )
+        self._btn_save.pack(side=tk.RIGHT, padx=(5, 0))
+
+        self._btn_cancel = ttk.Button(
+            self._frm_buttons, text="✕  取消",
+            style="Ghost.TButton", command=self._on_cancel,
+        )
+        self._btn_cancel.pack(side=tk.RIGHT)
+
+        self._apply_action_state()
+
+    def _apply_action_state(self) -> None:
+        action = self._var_action.get()
+        
+        # Coordinates (X, Y)
+        if action in ("delay", "keyboard_input", "hotkey", "label", "goto"):
+            self._frm_coords.pack_forget()
+        else:
+            self._frm_coords.pack(fill=tk.X, after=self._combo_action)
+            
+        # Count
+        if action in ("delay", "goto", "label", "if_image_exists"):
+            self._frm_count.pack_forget()
+        else:
+            self._frm_count.pack(fill=tk.X, after=self._frm_coords)
+
+        # Delay
+        if action == "label":
+            self._frm_delay.pack_forget()
+        else:
+            target_ref = self._frm_count if self._frm_count.winfo_manager() else self._frm_coords
+            self._frm_delay.pack(fill=tk.X, after=target_ref)
+
+        # Keyboard / Hotkey / Label
+        if action in _KB_ACTIONS:
+            self._frm_kb.pack(fill=tk.X, after=self._frm_delay)
+            if action == "hotkey":
+                self._lbl_kb_title.config(text="熱鍵組合")
+                hint = "格式: ctrl+c  /  alt+F4  /  ctrl+shift+s"
+            elif action == "keyboard_input":
+                self._lbl_kb_title.config(text="輸入文字內容")
+                hint = "輸入要打出的文字內容"
+            elif action == "label":
+                self._lbl_kb_title.config(text="標籤名稱")
+                hint = "輸入標籤名稱（例如: 戰鬥開始、迴圈起點）"
+            else:
+                hint = ""
+            self._lbl_kb_hint.config(text=hint)
+        else:
+            self._frm_kb.pack_forget()
+
+        # Drag params
+        if action in _DRAG_ACTIONS:
+            self._frm_drag.pack(fill=tk.X, after=self._frm_delay)
+        else:
+            self._frm_drag.pack_forget()
+
+        # Image click params
+        if action in _IMG_ACTIONS or action == "if_image_exists":
+            target_ref = self._frm_delay
+            if self._frm_kb.winfo_manager():
+                target_ref = self._frm_kb
+            elif self._frm_drag.winfo_manager():
+                target_ref = self._frm_drag
+            self._frm_img.pack(fill=tk.X, after=target_ref)
+        else:
+            self._frm_img.pack_forget()
+
+        # Jump params
+        if action in ("goto", "if_image_exists"):
+            target_ref = self._frm_img if self._frm_img.winfo_manager() else self._frm_delay
+            self._frm_jump.pack(fill=tk.X, after=target_ref)
+        else:
+            self._frm_jump.pack_forget()
+
+        # Re-pack buttons to bottom
+        self._frm_buttons.pack_forget()
+        self._frm_buttons.pack(fill=tk.X, side=tk.BOTTOM, pady=(15, 0))
+
+        # Adjust window geometry
+        self.update_idletasks()
+        self._recenter()
+
+    def _load_step(self, step: "ClickStep") -> None:
+        self._var_action.set(step.action_type)
+        self._var_x.set(str(step.x))
+        self._var_y.set(str(step.y))
+        self._var_count.set(str(step.count))
+        self._var_delay.set(str(step.delay))
+        self._var_kb.set(step.keyboard_text or "")
+        
+        if step.action_type in _DRAG_ACTIONS:
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            self._var_drag_x.set(str(p.get("to_x", "")))
+            self._var_drag_y.set(str(p.get("to_y", "")))
+            self._var_drag_dur.set(str(p.get("duration", 0.3)))
+            
+        if step.action_type in ("goto", "if_image_exists"):
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            target = p.get("goto_label") or str(p.get("goto_step", "1"))
+            self._var_goto_target.set(target)
+            
+        if step.action_type == "if_image_exists":
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            self._var_img_path.set(p.get("path", ""))
+            self._var_conf.set(str(p.get("confidence", 0.85)))
+            if p.get("path"):
+                self._update_img_preview(p["path"])
+                
+        if step.action_type in _IMG_ACTIONS:
+            import json as _json
+            p = _json.loads(step.extra_json or "{}")
+            self._var_img_path.set(p.get("path", ""))
+            self._var_conf.set(str(p.get("confidence", 0.85)))
+            self._var_timeout.set(str(p.get("timeout", 10)))
+            if p.get("path"):
+                self._update_img_preview(p["path"])
+                
+        self._apply_action_state()
+
+    def _parse_step(self) -> "ClickStep":
+        action = self._var_action.get()
+        x, y = 0, 0
+        
+        if action not in ("delay", "keyboard_input", "hotkey", "label", "goto"):
+            try:
+                x = int(self._norm(self._var_x.get()))
+                y = int(self._norm(self._var_y.get()))
+            except ValueError:
+                raise ValueError("X / Y 座標必須為整數")
+                
+        count = 1
+        if action not in ("delay", "goto", "label", "if_image_exists"):
+            try:
+                count = int(self._norm(self._var_count.get()))
+                if count < 1:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("執行次數必須為 ≥ 1 的整數")
+                
+        delay = 0.0
+        if action != "label":
+            try:
+                delay = float(self._norm(self._var_delay.get()))
+                if delay < 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("延遲時間必須為 ≥ 0 的數值")
+                
+        kb = self._var_kb.get().strip() or None
+
+        if action in _DRAG_ACTIONS:
+            import json as _json
+            try:
+                tx = int(self._norm(self._var_drag_x.get()))
+                ty = int(self._norm(self._var_drag_y.get()))
+            except ValueError:
+                raise ValueError("終點 X / Y 座標必須為整數")
+            try:
+                dur = float(self._norm(self._var_drag_dur.get()) or "0.3")
+                if dur <= 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("耗時必須為大於 0 的數字")
+            return ClickStep(
+                x=x, y=y, count=count, delay=delay,
+                action_type="drag",
+                extra_json=_json.dumps(
+                    {"to_x": tx, "to_y": ty, "duration": dur},
+                    ensure_ascii=False,
+                ),
+            )
+
+        if action == "label":
+            name = self._var_kb.get().strip()
+            if not name:
+                raise ValueError("請輸入標籤名稱")
+            return ClickStep(
+                action_type="label",
+                keyboard_text=name,
+                delay=0.0
+            )
+
+        if action == "goto":
+            import json as _json
+            target = self._var_goto_target.get().strip()
+            if not target:
+                raise ValueError("請設定跳轉目標（標籤或步驟編號）")
+            if target.isdigit():
+                g_step = int(target)
+                if g_step < 1:
+                    raise ValueError("跳轉步驟必須為 ≥ 1 的整數")
+                return ClickStep(
+                    action_type="goto",
+                    delay=delay,
+                    extra_json=_json.dumps({"goto_step": g_step})
+                )
+            else:
+                return ClickStep(
+                    action_type="goto",
+                    delay=delay,
+                    extra_json=_json.dumps({"goto_label": target}, ensure_ascii=False)
+                )
+
+        if action == "if_image_exists":
+            import json as _json
+            target = self._var_goto_target.get().strip()
+            if not target:
+                raise ValueError("請設定跳轉目標（標籤或步驟編號）")
+            path = self._var_img_path.get().strip()
+            if not path:
+                raise ValueError("請先按「截取區域」選取參考圖片")
+            import os as _os
+            if not _os.path.isfile(path):
+                raise ValueError(f"圖片檔案不存在：{path}")
+            try:
+                conf = float(self._norm(self._var_conf.get()) or "0.85")
+                conf = max(0.1, min(1.0, conf))
+            except ValueError:
+                raise ValueError("相似度請輸入 0.1–1.0 之間的數字")
+            
+            if target.isdigit():
+                g_step = int(target)
+                if g_step < 1:
+                    raise ValueError("跳轉步驟必須為 ≥ 1 的整數")
+                return ClickStep(
+                    action_type="if_image_exists",
+                    delay=delay,
+                    extra_json=_json.dumps(
+                        {"path": path, "confidence": conf, "goto_step": g_step},
+                        ensure_ascii=False
+                    )
+                )
+            else:
+                return ClickStep(
+                    action_type="if_image_exists",
+                    delay=delay,
+                    extra_json=_json.dumps(
+                        {"path": path, "confidence": conf, "goto_label": target},
+                        ensure_ascii=False
+                    )
+                )
+
+        if action in _IMG_ACTIONS:
+            import json as _json
+            path = self._var_img_path.get().strip()
+            if not path:
+                raise ValueError("請先按「截取區域」選取參考圖片")
+            import os as _os
+            if not _os.path.isfile(path):
+                raise ValueError(f"圖片檔案不存在：{path}")
+            try:
+                conf = float(self._norm(self._var_conf.get()) or "0.85")
+                conf = max(0.1, min(1.0, conf))
+            except ValueError:
+                raise ValueError("相似度請輸入 0.1–1.0 之間的數字")
+            try:
+                timeout = float(self._norm(self._var_timeout.get()) or "10")
+                if timeout <= 0:
+                    raise ValueError()
+            except ValueError:
+                raise ValueError("超時秒數請輸入大於 0 的數字")
+            return ClickStep(
+                action_type="image_click",
+                delay=delay,
+                extra_json=_json.dumps(
+                    {"path": path, "confidence": conf, "timeout": timeout},
+                    ensure_ascii=False,
+                ),
+            )
+
+        return ClickStep(x=x, y=y, count=count, delay=delay,
+                         action_type=action, keyboard_text=kb)
+
+    def _capture_position(self) -> None:
+        self.withdraw()
+        def on_done(x, y):
+            self.deiconify()
+            self.focus_force()
+            if x is not None and y is not None:
+                dx, dy = self._parent._get_window_offset(self._binding)
+                saved_x = x - dx
+                saved_y = y - dy
+                self._var_x.set(str(saved_x))
+                self._var_y.set(str(saved_y))
+        _CoordinatePicker(self._parent._root, on_done)
+
+    def _capture_drag_destination(self) -> None:
+        self.withdraw()
+        def on_done(x, y):
+            self.deiconify()
+            self.focus_force()
+            if x is not None and y is not None:
+                dx, dy = self._parent._get_window_offset(self._binding)
+                saved_x = x - dx
+                saved_y = y - dy
+                self._var_drag_x.set(str(saved_x))
+                self._var_drag_y.set(str(saved_y))
+        _CoordinatePicker(self._parent._root, on_done)
+
+    def _capture_region(self) -> None:
+        self.withdraw()
+        def on_done(path, *_):
+            self.deiconify()
+            self.focus_force()
+            if path:
+                self._var_img_path.set(path)
+                self._update_img_preview(path)
+        _RegionSelector(self._parent._root,
+                        save_dir=os.path.join(_app_dir(), "images"),
+                        on_done=on_done)
+
+    def _editor_record_click(self) -> None:
+        self.withdraw()
+        def on_done(x, y):
+            self.deiconify()
+            self.focus_force()
+            if x is not None and y is not None:
+                self._editor_capture_at(x, y)
+        _CoordinatePicker(self._parent._root, on_done, text="🔴 請點擊要記錄的位置  (ESC 取消)")
+
+    def _editor_capture_at(self, x: int, y: int) -> None:
+        import datetime, pyautogui
+        crop_w, crop_h = 160, 70
+        x0 = max(0, x - crop_w // 2)
+        y0 = max(0, y - crop_h // 2)
+        img = pyautogui.screenshot(region=(x0, y0, crop_w, crop_h))
+
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"captured_{ts}.png"
+        save_dir = os.path.join(_app_dir(), "images")
+        os.makedirs(save_dir, exist_ok=True)
+        fpath = os.path.join(save_dir, fname)
+        img.save(fpath)
+
+        self._var_img_path.set(fpath)
+        self._update_img_preview(fpath)
+
+    def _update_img_preview(self, path: str) -> None:
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(path)
+            img.thumbnail((220, 80))
+            self._img_preview_tk = ImageTk.PhotoImage(img)
+            self._lbl_img_preview.config(image=self._img_preview_tk)
+        except Exception:
+            self._lbl_img_preview.config(image="")
+            self._img_preview_tk = None
+
+    def _on_save_clicked(self) -> None:
+        try:
+            step = self._parse_step()
+        except ValueError as exc:
+            messagebox.showerror("輸入錯誤", str(exc))
+            return
+        if self._on_save:
+            self._on_save(step)
+        self.grab_release()
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.grab_release()
+        self.destroy()
+
+    @staticmethod
+    def _norm(s: str) -> str:
+        return s.strip().replace("。", ".").replace("．", ".").replace("，", ",")
+
+    def _auto_norm(self, var: tk.StringVar) -> None:
+        val = var.get()
+        new_val = val.replace("。", ".").replace("．", ".")
+        if new_val != val:
+            var.set(new_val)
+
+    @staticmethod
+    def _disable_ime(widget: tk.Widget) -> None:
+        try:
+            import ctypes
+            hwnd = int(widget.winfo_id())
+            if hwnd:
+                ctypes.windll.imm32.ImmAssociateContext(hwnd, 0)
+        except Exception:
+            pass
+
+    def _numeric_entry(self, parent: tk.Widget, textvariable: tk.StringVar,
+                        **kwargs) -> ttk.Entry:
+        e = ttk.Entry(parent, textvariable=textvariable, **kwargs)
+        e.bind("<Map>", lambda _evt, w=e: self._disable_ime(w))
+        return e
+
+    def _mk_field_label(self, parent: tk.Widget, text: str) -> None:
+        tk.Label(parent, text=text.upper(), bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 9, "bold"),
+                 ).pack(anchor=tk.W, pady=(8, 2))
+
+    def _refresh_goto_targets(self) -> None:
+        labels = []
+        for s in self._parent._steps:
+            if s.action_type == "label" and s.keyboard_text:
+                name = s.keyboard_text.strip()
+                if name and name not in labels:
+                    labels.append(name)
+        for i in range(1, len(self._parent._steps) + 1):
+            labels.append(str(i))
+        self._combo_goto_target["values"] = labels

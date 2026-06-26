@@ -3,6 +3,7 @@ import os
 import time
 import threading
 import logging
+import json
 import pyautogui
 from typing import Callable, List, Optional, Tuple
 
@@ -53,13 +54,14 @@ class SceneRunner:
         on_fired: Callable[[SceneRule], None],
         get_win_info: Optional[Callable[[], WinInfo]] = None,
         base_dir: str = "",
+        load_profile_steps: Optional[Callable] = None,
     ) -> None:
         if self.is_running:
             return
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._loop,
-            args=(rules, get_orb_config, on_status, on_fired, get_win_info, base_dir),
+            args=(rules, get_orb_config, on_status, on_fired, get_win_info, base_dir, load_profile_steps),
             daemon=True,
             name="SceneRunner",
         )
@@ -78,6 +80,7 @@ class SceneRunner:
         on_fired: Callable[[SceneRule], None],
         get_win_info: Optional[Callable[[], WinInfo]],
         base_dir: str,
+        load_profile_steps: Optional[Callable],
     ) -> None:
         cooldowns: dict[int, float] = {}
         sct = _mss_mod.MSS() if _HAS_MSS else None
@@ -88,12 +91,18 @@ class SceneRunner:
         # Pre-filter enabled rules and resolve image paths + labels once
         active = []
         for r in rules:
-            if not r.enabled or not r.image_path:
+            if not r.enabled:
+                continue
+            # Allow if has image_path OR is absolute click OR is run_profile with target_profile_name
+            if not r.image_path and not (r.click_x is not None and r.click_y is not None) and not (r.action == "run_profile" and r.target_profile_name):
                 continue
             img = r.image_path
-            if base_dir and not os.path.isabs(img):
-                img = os.path.join(base_dir, img)
-            lbl = r.name or img.split("/")[-1].split("\\")[-1]
+            if img:
+                if base_dir and not os.path.isabs(img):
+                    img = os.path.join(base_dir, img)
+                lbl = r.name or img.split("/")[-1].split("\\")[-1]
+            else:
+                lbl = r.name or (f"腳本({r.target_profile_name})" if r.action == "run_profile" else f"座標({r.click_x},{r.click_y})")
             active.append((r, img, lbl))
 
         # Cache hwnd between cycles; refresh only when stale (fix #6)
@@ -155,6 +164,83 @@ class SceneRunner:
 
                         # Wait for combo animation
                         self._stop_event.wait(3.0)
+                        fired = True
+                        break
+                    if rule.action == "run_profile":
+                        matched = False
+                        if img_path:
+                            matched, _, _ = self._try_click_rule(rule, img_path, region, cycle_shot)
+                        else:
+                            matched = True
+                        if not matched:
+                            continue
+
+                        if load_profile_steps is None:
+                            continue
+                        steps_to_run = load_profile_steps(rule.target_profile_name, region)
+                        if not steps_to_run:
+                            continue
+
+                        cooldowns[key] = time.time() + rule.cooldown
+                        on_fired(rule)
+                        on_status(f"執行設定檔：{rule.target_profile_name}")
+                        logger.info("SceneRunner run_profile=%r triggered", rule.target_profile_name)
+                        if hwnd:
+                            try:
+                                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                                time.sleep(0.15)
+                            except Exception:
+                                pass
+                        step_idx = 0
+                        while step_idx < len(steps_to_run):
+                            if self._stop_event.is_set():
+                                break
+                            step = steps_to_run[step_idx]
+                            if step.action_type == "label":
+                                step_idx += 1
+                            elif step.action_type == "goto":
+                                on_status(f"執行中：{step.display_label()}")
+                                params = json.loads(step.extra_json or "{}")
+                                goto_label = params.get("goto_label")
+                                target = None
+                                if goto_label:
+                                    target = next((i for i, s in enumerate(steps_to_run) if s.action_type == "label" and s.keyboard_text == goto_label), None)
+                                else:
+                                    target = params.get("goto_step", 1) - 1
+                                self._interruptible_sleep(step.delay)
+                                if target is not None and 0 <= target < len(steps_to_run):
+                                    step_idx = target
+                                else:
+                                    step_idx += 1
+                            elif step.action_type == "if_image_exists":
+                                on_status(f"執行中：{step.display_label()}")
+                                params = json.loads(step.extra_json or "{}")
+                                path = params.get("path", "")
+                                if path and base_dir and not os.path.isabs(path):
+                                    path = os.path.join(base_dir, path)
+                                conf = float(params.get("confidence", 0.85))
+                                goto_label = params.get("goto_label")
+                                target = None
+                                if goto_label:
+                                    target = next((i for i, s in enumerate(steps_to_run) if s.action_type == "label" and s.keyboard_text == goto_label), None)
+                                else:
+                                    target = params.get("goto_step", 1) - 1
+                                found = False
+                                if path and os.path.isfile(path):
+                                    try:
+                                        center = pyautogui.locateCenterOnScreen(path, confidence=conf)
+                                        if center is not None:
+                                            found = True
+                                    except Exception:
+                                        found = False
+                                self._interruptible_sleep(step.delay)
+                                if found and target is not None and 0 <= target < len(steps_to_run):
+                                    step_idx = target
+                                else:
+                                    step_idx += 1
+                            else:
+                                self._execute_step(step, on_status)
+                                step_idx += 1
                         fired = True
                         break
 
@@ -346,3 +432,86 @@ class SceneRunner:
                 pass
             logger.exception("SceneRunner orb solve error")
             on_status(f"轉珠失敗：{exc}")
+
+    # ── profile execution helpers ─────────────────────────────────────────────
+
+    def _execute_step(self, step, on_status) -> None:
+        action = step.action_type
+        on_status(f"執行中：{step.display_label()}")
+        logger.debug("SceneRunner executing step: %s", step.display_label())
+
+        if action == "move":
+            pyautogui.moveTo(step.x, step.y)
+            self._interruptible_sleep(step.delay)
+
+        elif action in ("click", "double_click", "right_click"):
+            button = "right" if action == "right_click" else "left"
+            for i in range(step.count):
+                if self._stop_event.is_set():
+                    break
+                if action == "double_click":
+                    pyautogui.doubleClick(step.x, step.y)
+                else:
+                    pyautogui.click(step.x, step.y, button=button)
+                if step.delay > 0:
+                    self._interruptible_sleep(step.delay)
+
+        elif action == "delay":
+            self._interruptible_sleep(step.delay)
+
+        elif action == "keyboard_input":
+            if step.keyboard_text:
+                pyautogui.typewrite(step.keyboard_text, interval=0.05)
+            self._interruptible_sleep(step.delay)
+
+        elif action == "hotkey":
+            if step.keyboard_text:
+                keys = [k.strip() for k in step.keyboard_text.split("+")]
+                pyautogui.hotkey(*keys)
+            self._interruptible_sleep(step.delay)
+
+        elif action == "drag":
+            params   = json.loads(step.extra_json or "{}")
+            to_x     = int(params.get("to_x", step.x))
+            to_y     = int(params.get("to_y", step.y))
+            duration = float(params.get("duration", 0.3))
+            for i in range(step.count):
+                if self._stop_event.is_set():
+                    break
+                pyautogui.mouseDown(step.x, step.y)
+                time.sleep(0.05)
+                pyautogui.moveTo(to_x, to_y, duration=duration)
+                time.sleep(0.03)
+                pyautogui.mouseUp()
+                self._interruptible_sleep(step.delay)
+
+        elif action == "image_click":
+            params   = json.loads(step.extra_json or "{}")
+            path     = params.get("path", "")
+            conf     = float(params.get("confidence", 0.85))
+            timeout  = float(params.get("timeout", 10.0))
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"找不到參考圖片：{path}")
+            deadline = time.monotonic() + timeout
+            center   = None
+            while time.monotonic() < deadline and not self._stop_event.is_set():
+                try:
+                    center = pyautogui.locateCenterOnScreen(path, confidence=conf)
+                except pyautogui.ImageNotFoundException:
+                    center = None
+                if center:
+                    break
+                self._interruptible_sleep(0.5)
+            if center is None:
+                raise RuntimeError(
+                    f"在 {timeout} 秒內找不到圖片：{os.path.basename(path)}"
+                )
+            pyautogui.click(center.x, center.y)
+            self._interruptible_sleep(step.delay)
+
+    def _interruptible_sleep(self, seconds: float) -> None:
+        if seconds <= 0:
+            return
+        deadline = time.monotonic() + seconds
+        while not self._stop_event.is_set() and time.monotonic() < deadline:
+            time.sleep(0.05)

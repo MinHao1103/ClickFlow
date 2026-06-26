@@ -68,11 +68,71 @@ class ClickExecutor:
             while not self._stop_event.is_set():
                 round_num += 1
                 self.state.current_round = round_num
-                for step_idx, step in enumerate(steps):
+                step_idx = 0
+                while step_idx < len(steps):
                     if self._stop_event.is_set():
                         break
                     self.state.current_step = step_idx + 1
-                    self._execute_step(step)
+                    step = steps[step_idx]
+                    
+                    if step.action_type == "label":
+                        step_idx += 1
+                        
+                    elif step.action_type == "goto":
+                        self.state.total_clicks = 1
+                        self.state.current_click = 1
+                        self._on_status_update(self.state)
+                        
+                        params = json.loads(step.extra_json or "{}")
+                        goto_label = params.get("goto_label")
+                        target = None
+                        if goto_label:
+                            target = next((i for i, s in enumerate(steps) if s.action_type == "label" and s.keyboard_text == goto_label), None)
+                        else:
+                            target = params.get("goto_step", 1) - 1
+                            
+                        self._interruptible_sleep(step.delay)
+                        
+                        if target is not None and 0 <= target < len(steps):
+                            step_idx = target
+                        else:
+                            step_idx += 1
+                            
+                    elif step.action_type == "if_image_exists":
+                        self.state.total_clicks = 1
+                        self.state.current_click = 1
+                        self._on_status_update(self.state)
+                        
+                        params = json.loads(step.extra_json or "{}")
+                        path = params.get("path", "")
+                        conf = float(params.get("confidence", 0.85))
+                        goto_label = params.get("goto_label")
+                        target = None
+                        if goto_label:
+                            target = next((i for i, s in enumerate(steps) if s.action_type == "label" and s.keyboard_text == goto_label), None)
+                        else:
+                            target = params.get("goto_step", 1) - 1
+                        
+                        found = False
+                        if path and os.path.isfile(path):
+                            try:
+                                center = pyautogui.locateCenterOnScreen(path, confidence=conf)
+                                if center is not None:
+                                    found = True
+                            except Exception:
+                                found = False
+                                
+                        self._interruptible_sleep(step.delay)
+                        
+                        if found and target is not None and 0 <= target < len(steps):
+                            step_idx = target
+                        else:
+                            step_idx += 1
+                            
+                    else:
+                        self._execute_step(step)
+                        step_idx += 1
+                        
                 if rounds != 0 and round_num >= rounds:
                     break
         except pyautogui.PyAutoGUIException as e:
