@@ -2847,9 +2847,6 @@ class MainWindow:
         if not name:
             messagebox.showwarning("警告", "請輸入設定檔名稱")
             return
-        if not self._steps:
-            messagebox.showwarning("警告", "請先新增至少一個步驟")
-            return
         try:
             self._db.save_profile(
                 Profile(name=name, description=self._var_prof_desc.get().strip()),
