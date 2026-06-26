@@ -2883,8 +2883,6 @@ class MainWindow:
 
     def _start_recording(self) -> None:
         if self._steps:
-            if not messagebox.askyesno("開始錄製", "目前步驟將被清除。\n確定要開始錄製嗎？"):
-                return
             self._steps.clear()
             self._refresh_list()
 
