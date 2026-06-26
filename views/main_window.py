@@ -833,19 +833,34 @@ class MainWindow:
         mid = ttk.Frame(parent)
         mid.grid(row=0, column=0, sticky="nsew", padx=8, pady=(4, 4))
         mid.rowconfigure(0, weight=1)
-        # Two columns: left (scalable step sequence) + right (fixed control panel)
-        mid.columnconfigure(0, weight=3, minsize=400)
-        mid.columnconfigure(1, weight=1, minsize=240)
+        # Two columns: left (fixed controls) + right (scalable step sequence)
+        mid.columnconfigure(0, weight=1, minsize=260)
+        mid.columnconfigure(1, weight=3, minsize=450)
 
-        left = ttk.LabelFrame(mid, text="  步驟序列")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        left.rowconfigure(0, weight=1)
-        left.columnconfigure(0, weight=1)
-        self._build_step_sequence(left)
+        left_col = ttk.Frame(mid)
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        
+        # 1. 設定檔 (Top Left)
+        prof_lf = ttk.LabelFrame(left_col, text="  📁  設定檔")
+        prof_lf.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        self._build_profile_panel(prof_lf)
 
-        right = ttk.LabelFrame(mid, text="  控制台")
-        right.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        self._build_execution_panel(right)
+        # 2. 錄製操作 (Middle Left)
+        rec_lf = ttk.LabelFrame(left_col, text="  🔴  錄製操作")
+        rec_lf.pack(fill=tk.X, side=tk.TOP, pady=4)
+        self._build_recording_panel(rec_lf)
+
+        # 3. 執行控制 (Bottom Left)
+        exec_lf = ttk.LabelFrame(left_col, text="  ⚡  執行控制")
+        exec_lf.pack(fill=tk.X, side=tk.TOP, pady=(4, 0))
+        self._build_execution_control_panel(exec_lf)
+
+        # 4. 步驟序列 (Right Column)
+        right_col = ttk.LabelFrame(mid, text="  步驟序列")
+        right_col.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+        right_col.rowconfigure(0, weight=1)
+        right_col.columnconfigure(0, weight=1)
+        self._build_step_sequence(right_col)
 
     def _build_orb_tab(self, parent: ttk.Frame) -> None:
         parent.rowconfigure(0, weight=1)
@@ -2489,42 +2504,68 @@ class MainWindow:
 
     # ── execution panel ───────────────────────────────────────────────────────
 
-    def _build_execution_panel(self, parent: ttk.LabelFrame) -> None:
+    def _build_profile_panel(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
-        # ── Window binding (optional) ─────────────────────────────────────────
-        self._build_window_picker(parent, self._tab1_win, PX)
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 0))
+        # Name / desc stacked
+        for lbl_text, var_attr in (("名稱", "_var_prof_name"), ("描述", "_var_prof_desc")):
+            if not hasattr(self, var_attr):
+                setattr(self, var_attr, tk.StringVar())
+            row = tk.Frame(parent, bg=_C["bg"])
+            row.pack(fill=tk.X, padx=PX, pady=(6, 3))
+            tk.Label(row, text=lbl_text, bg=_C["bg"], fg=_C["text_muted"],
+                     font=("Segoe UI", 8), width=3, anchor=tk.W).pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=getattr(self, var_attr)).pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
 
-        # ── section helper ────────────────────────────────────────────────────
-        def _sec_header(dot_color: str, title: str, right_widget_fn=None):
-            hdr = tk.Frame(parent, bg=_C["bg"])
-            hdr.pack(fill=tk.X, padx=PX, pady=(10, 4))
-            tk.Label(hdr, text="●", bg=_C["bg"],
-                     fg=dot_color, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
-            tk.Label(hdr, text=title, bg=_C["bg"],
-                     fg=_C["text"], font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
-            if right_widget_fn:
-                right_widget_fn(hdr)
+        ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
+                   command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 6))
 
-        # ── 1. 錄製操作 ───────────────────────────────────────────────────────
-        _sec_header(_C["danger"], "錄製操作")
+        tk.Label(parent, text="已儲存操作", bg=_C["bg"],
+                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
+            anchor=tk.W, padx=PX, pady=(4, 2))
+
+        self._var_prof_select = tk.StringVar()
+        self._cb_profiles = ttk.Combobox(
+            parent,
+            textvariable=self._var_prof_select,
+            state="readonly",
+            font=("Segoe UI", 9),
+        )
+        self._cb_profiles.pack(fill=tk.X, padx=PX, pady=(0, 6))
+        self._cb_profiles.bind("<<ComboboxSelected>>", self._on_cb_profile_select)
+
+        # Pack buttons at BOTTOM first so they always have space
+        act = tk.Frame(parent, bg=_C["bg"])
+        act.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(3, 8))
+        ttk.Button(act, text="＋ 新增", style="Ghost.TButton",
+                   command=self._new_operation).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(act, text="載入", style="Accent.TButton",
+                   command=self._load_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
+                   command=self._delete_selected_profile).pack(
+            side=tk.LEFT, expand=True, fill=tk.X)
+
+    def _build_recording_panel(self, parent: ttk.LabelFrame) -> None:
+        PX = 10
 
         self._btn_record_start = ttk.Button(
             parent, text="●  開始錄製  [F9]",
             style="Record.TButton", command=self._start_recording,
         )
-        self._btn_record_start.pack(fill=tk.X, padx=PX, pady=(0, 2))
+        self._btn_record_start.pack(fill=tk.X, padx=PX, pady=(6, 2))
 
         self._btn_record_stop = ttk.Button(
             parent, text="■  停止錄製  [F9]",
             style="Ghost.TButton", command=self._stop_recording, state=tk.DISABLED,
         )
-        self._btn_record_stop.pack(fill=tk.X, padx=PX, pady=(0, 4))
+        self._btn_record_stop.pack(fill=tk.X, padx=PX, pady=(0, 6))
 
         # Compact options row: checkbox left, delay right
         opt = tk.Frame(parent, bg=_C["bg"])
-        opt.pack(fill=tk.X, padx=PX, pady=(0, 3))
+        opt.pack(fill=tk.X, padx=PX, pady=(0, 6))
         self._var_record_move = tk.BooleanVar(value=False)
         ttk.Checkbutton(opt, text="錄製移動",
                         variable=self._var_record_move).pack(side=tk.LEFT)
@@ -2537,14 +2578,16 @@ class MainWindow:
         tk.Label(opt, text="上限", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 9)).pack(side=tk.RIGHT)
 
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 0))
+    def _build_execution_control_panel(self, parent: ttk.LabelFrame) -> None:
+        PX = 10
 
-        # ── 2. 執行控制 ───────────────────────────────────────────────────────
-        _sec_header(_C["success"], "執行控制")
+        # ── Window binding (optional) ─────────────────────────────────────────
+        self._build_window_picker(parent, self._tab1_win, PX)
+        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(6, 6))
 
         # Rounds row
         rnd = tk.Frame(parent, bg=_C["bg"])
-        rnd.pack(fill=tk.X, padx=PX, pady=(0, 5))
+        rnd.pack(fill=tk.X, padx=PX, pady=(0, 6))
         self._var_rounds = tk.StringVar(value="1")
         self._var_rounds.trace_add("write", lambda *_: self._auto_norm(self._var_rounds))
         self._numeric_entry(rnd, self._var_rounds, width=5).pack(side=tk.LEFT)
@@ -2574,7 +2617,7 @@ class MainWindow:
 
         stat = tk.Frame(parent, bg=_C["card"],
                         highlightthickness=1, highlightbackground=_C["border"])
-        stat.pack(fill=tk.X, padx=PX, pady=(5, 3))
+        stat.pack(fill=tk.X, padx=PX, pady=(6, 6))
         for icon, lbl, var in (
             ("↺", "輪", self._var_st_round),
             ("▶", "步", self._var_st_step),
@@ -2586,52 +2629,6 @@ class MainWindow:
                      fg=_C["text_muted"], font=("Segoe UI", 8)).pack()
             tk.Label(col, textvariable=var, bg=_C["card"],
                      fg=_C["accent"], font=("Segoe UI", 9, "bold")).pack()
-
-        ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(2, 0))
-
-        # ── 3. 設定檔 ─────────────────────────────────────────────────────────
-        def _add_new_btn(hdr):
-            ttk.Button(hdr, text="＋ 新增", style="Ghost.TButton",
-                       command=self._new_operation).pack(side=tk.RIGHT)
-
-        _sec_header(_C["accent"], "設定檔", _add_new_btn)
-
-        # Name / desc stacked
-        for lbl_text, var_attr in (("名稱", "_var_prof_name"), ("描述", "_var_prof_desc")):
-            setattr(self, var_attr, tk.StringVar())
-            row = tk.Frame(parent, bg=_C["bg"])
-            row.pack(fill=tk.X, padx=PX, pady=(0, 3))
-            tk.Label(row, text=lbl_text, bg=_C["bg"], fg=_C["text_muted"],
-                     font=("Segoe UI", 8), width=3, anchor=tk.W).pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=getattr(self, var_attr)).pack(
-                side=tk.LEFT, fill=tk.X, expand=True)
-
-        ttk.Button(parent, text="💾  儲存設定檔", style="Accent.TButton",
-                   command=self._save_profile).pack(fill=tk.X, padx=PX, pady=(2, 4))
-
-        # Pack buttons at BOTTOM first so they always have space
-        act = tk.Frame(parent, bg=_C["bg"])
-        act.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(3, 8))
-        ttk.Button(act, text="載入", style="Accent.TButton",
-                   command=self._load_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
-        ttk.Button(act, text="刪除", style="GhostDanger.TButton",
-                   command=self._delete_selected_profile).pack(
-            side=tk.LEFT, expand=True, fill=tk.X)
-
-        tk.Label(parent, text="已儲存操作", bg=_C["bg"],
-                 fg=_C["text_muted"], font=("Segoe UI", 8, "bold")).pack(
-            anchor=tk.W, padx=PX, pady=(4, 2))
-
-        self._var_prof_select = tk.StringVar()
-        self._cb_profiles = ttk.Combobox(
-            parent,
-            textvariable=self._var_prof_select,
-            state="readonly",
-            font=("Segoe UI", 9),
-        )
-        self._cb_profiles.pack(fill=tk.X, padx=PX, pady=(0, 4))
-        self._cb_profiles.bind("<<ComboboxSelected>>", self._on_cb_profile_select)
 
     # ── status bar ────────────────────────────────────────────────────────────
 
