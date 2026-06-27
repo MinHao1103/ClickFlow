@@ -891,7 +891,7 @@ class MainWindow:
         PX = 10
 
         # ── Window binding (optional) — select BEFORE calibrating ────────────
-        self._build_window_picker(parent, self._tab2_win, PX)
+        self._build_window_picker(parent, self._tab2_win, "tab2_window", PX)
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
 
         # Calibrate button
@@ -1151,7 +1151,7 @@ class MainWindow:
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 4))
 
         # ── Window binding ───────────────────────────────────────────────────
-        self._build_window_picker(parent, self._tab3_win, PX)
+        self._build_window_picker(parent, self._tab3_win, "tab3_window", PX)
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(4, 6))
 
         # ── Edit form (TOP) ──────────────────────────────────────────────────
@@ -2517,7 +2517,35 @@ class MainWindow:
 
     # ── window binding helpers ────────────────────────────────────────────────
 
-    def _build_window_picker(self, parent: tk.Widget, binding: dict, padx: int = 10) -> None:
+    def _load_app_setting(self, key: str) -> Optional[str]:
+        """讀取本地設定 JSON 檔案中特定鍵的值"""
+        try:
+            path = os.path.join(_app_dir(), "settings.json")
+            if os.path.isfile(path):
+                import json
+                with open(path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    return settings.get(key)
+        except Exception:
+            pass
+        return None
+
+    def _save_app_setting(self, key: str, value: Optional[str]) -> None:
+        """寫入本地設定 JSON 檔案"""
+        try:
+            path = os.path.join(_app_dir(), "settings.json")
+            settings = {}
+            import json
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+            settings[key] = value
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _build_window_picker(self, parent: tk.Widget, binding: dict, settings_key: str, padx: int = 10) -> None:
         """Render a compact window-binding row. Mutates `binding` dict in place."""
         row = tk.Frame(parent, bg=_C["bg"])
         row.pack(fill=tk.X, padx=padx, pady=(4, 2))
@@ -2543,9 +2571,16 @@ class MainWindow:
                 titles.append(key)
             binding["map"] = win_map
             cb["values"] = titles
-            if win_var.get() not in titles:
+            
+            # 若有歷史綁定過且目前依然開啟的視窗，進行自動還原綁定
+            saved_title = self._load_app_setting(settings_key)
+            if saved_title and saved_title in titles:
+                win_var.set(saved_title)
+                _on_select()
+            elif win_var.get() not in titles:
                 win_var.set("(不綁定)")
                 binding["hwnd"] = None
+                self._save_app_setting(settings_key, None)
 
         def _on_select(_e=None):
             val = win_var.get()
@@ -2555,6 +2590,7 @@ class MainWindow:
                 binding["title"]    = None
                 binding["ref"]      = (0, 0)
                 binding["ref_size"] = None
+                self._save_app_setting(settings_key, None)
                 return
             hwnd = win_map[val]
             from services.window_manager import get_window_rect
@@ -2562,11 +2598,13 @@ class MainWindow:
             if rect is None:
                 messagebox.showwarning("綁定視窗", "無法取得視窗位置，請重新整理")
                 win_var.set("(不綁定)")
+                self._save_app_setting(settings_key, None)
                 return
             binding["hwnd"]     = hwnd
             binding["title"]    = val      # used to re-locate window if hwnd goes stale
             binding["ref"]      = (rect[0], rect[1])
             binding["ref_size"] = (rect[2], rect[3])
+            self._save_app_setting(settings_key, val)
 
         ttk.Button(row, text="↻", style="Ghost.TButton",
                    command=_refresh).pack(side=tk.LEFT, padx=(2, 0))
@@ -2734,7 +2772,7 @@ class MainWindow:
         PX = 10
 
         # ── Window binding (optional) ─────────────────────────────────────────
-        self._build_window_picker(parent, self._tab1_win, PX)
+        self._build_window_picker(parent, self._tab1_win, "tab1_window", PX)
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(6, 6))
 
         # Rounds row
