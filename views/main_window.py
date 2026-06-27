@@ -1896,7 +1896,7 @@ class MainWindow:
             ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
             ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
             ("選第一個盟友",           "user_select_ally.png",       "click",     0.75,  3.0, 0,   0),
-            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.75,  5.0, 256, 3),
+            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.70,  5.0, 132, 0),
             ("點擊NEW地城",            "user_new_badge.png",         "click",     0.75,  5.0, 0,  0),
             ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0),
             ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.70,  5.0, 0,   0),
