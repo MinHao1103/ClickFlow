@@ -1974,6 +1974,16 @@ class MainWindow:
             return
         if self._scene_runner and self._scene_runner.is_running:
             return
+        # Bring the bound game window to the foreground on start
+        hwnd = self._resolve_bound_window(self._tab3_win)
+        if hwnd:
+            try:
+                import ctypes
+                ctypes.windll.user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                time.sleep(0.2)
+            except Exception:
+                pass
         self._scene_runner = SceneRunner()
         self._scene_runner.start(
             rules=list(self._scene_rules),
