@@ -1219,6 +1219,9 @@ class MainWindow:
                          "自動點擊圖片出現的位置（按鈕、確認框）")
         _make_action_btn("orb_solve", "啟動轉珠 AI",
                          "執行自動轉珠（用於戰鬥珠盤場景）")
+        _make_action_btn("run_profile", "執行自動化設定檔",
+                         "偵測到圖片（或滿足條件）時，自動執行指定的自動化步驟設定檔")
+
 
         # Fixed click coordinates (optional — overrides template centre)
         row_xy = tk.Frame(form, bg=_C["bg"])
@@ -1235,16 +1238,38 @@ class MainWindow:
         self._numeric_entry(row_xy, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(row_xy, text="📍", style="Ghost.TButton", width=3,
                    command=self._capture_position).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(row_xy, text="← S 鍵", bg=_C["bg"], fg=_C["text_muted"],
+        tk.Label(row_xy, text="← F8 鍵", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).pack(side=tk.LEFT)
+
+        # Target profile selection row (only shown when action is run_profile)
+        self._scene_var_target_profile = tk.StringVar()
+        self._scene_profile_row = tk.Frame(form, bg=_C["bg"])
+        tk.Label(self._scene_profile_row, text="目標設定檔", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
+
+        def _refresh_target_profiles():
+            try:
+                names = self._db.list_profile_names()
+            except Exception:
+                names = []
+            self._scene_cb_target_profile["values"] = names
+
+        self._scene_cb_target_profile = ttk.Combobox(
+            self._scene_profile_row, textvariable=self._scene_var_target_profile,
+            state="readonly", font=("Segoe UI", 9), width=16,
+            postcommand=_refresh_target_profiles)
+        self._scene_cb_target_profile.pack(side=tk.LEFT)
+        _refresh_target_profiles()
 
         # Dynamic mode hint
         self._scene_mode_lbl = tk.Label(
             form, text="", bg=_C["bg"], fg=_C["accent"], font=("Segoe UI", 8))
         self._scene_mode_lbl.pack(anchor=tk.W, pady=(2, 2))
         for var in (self._scene_var_imgpath, self._scene_var_click_x,
-                    self._scene_var_click_y, self._scene_var_action):
+                    self._scene_var_click_y, self._scene_var_action,
+                    self._scene_var_target_profile):
             var.trace_add("write", lambda *_: self._root.after(0, self._scene_update_mode_hint))
+
 
         # Confidence + cooldown
         row3 = tk.Frame(form, bg=_C["bg"])
@@ -1373,6 +1398,8 @@ class MainWindow:
             cd   = f"{r.cooldown:g}s"
             if r.action == "orb_solve":
                 detail = f"🔮 轉珠  ({cd})"
+            elif r.action == "run_profile":
+                detail = f"⚙ 執行「{r.target_profile_name or '未指定'}」  ({cd})"
             elif not r.image_path and r.click_x is not None and r.click_y is not None:
                 detail = f"📌 ({r.click_x},{r.click_y})  ({cd})"
             else:
@@ -1380,6 +1407,7 @@ class MainWindow:
             self._scene_lb.insert(tk.END, f"  {chk}  {name}  →  {detail}")
             fg = _C["text"] if r.enabled else _C["text_muted"]
             self._scene_lb.itemconfig(tk.END, foreground=fg)
+
 
     def _scene_on_select(self, _e=None) -> None:
         sel = self._scene_lb.curselection()
@@ -1398,6 +1426,8 @@ class MainWindow:
         self._scene_var_enabled.set(r.enabled)
         self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
         self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
+        self._scene_var_target_profile.set(r.target_profile_name or "")
+
         self._scene_update_preview()
         self._scene_update_mode_hint()
 
@@ -1409,6 +1439,9 @@ class MainWindow:
         has_coord = bool(x and y)
         if act == "orb_solve":
             hint = "🔮 模式：轉珠 AI — 偵測珠盤後自動轉珠"
+        elif act == "run_profile":
+            p = self._scene_var_target_profile.get()
+            hint = f"⚙ 模式：偵測成功時執行自動化步驟「{p or '未選擇'}」"
         elif not img and has_coord:
             hint = "📌 模式：純座標點擊 — 不需圖片，直接點固定位置"
         elif img and has_coord:
@@ -1419,6 +1452,13 @@ class MainWindow:
             hint = "⚠ 請設定圖片路徑 或 填入固定座標"
         if hasattr(self, "_scene_mode_lbl"):
             self._scene_mode_lbl.config(text=hint)
+
+        if hasattr(self, "_scene_profile_row") and self._scene_profile_row:
+            if act == "run_profile":
+                self._scene_profile_row.pack(fill=tk.X, pady=(4, 4), after=self._scene_mode_lbl)
+            else:
+                self._scene_profile_row.pack_forget()
+
 
     def _scene_update_preview(self) -> None:
         path = self._scene_var_imgpath.get().strip()
@@ -1471,7 +1511,9 @@ class MainWindow:
             enabled=src.enabled, order_idx=len(self._scene_rules),
             click_dx=src.click_dx, click_dy=src.click_dy,
             click_x=src.click_x, click_y=src.click_y,
+            target_profile_name=src.target_profile_name,
         )
+
         insert_at = self._scene_sel + 1
         self._scene_rules.insert(insert_at, dup)
         self._scene_sel = insert_at
@@ -1524,11 +1566,14 @@ class MainWindow:
         except ValueError:
             click_x = click_y = None
 
+        target_profile = self._scene_var_target_profile.get() if action == "run_profile" else None
+
         r = SceneRule(
             image_path=imgpath, action=action, name=name or "新規則",
             confidence=conf, cooldown=cool, enabled=enabled,
             order_idx=len(self._scene_rules),
             click_x=click_x, click_y=click_y,
+            target_profile_name=target_profile,
         )
         self._scene_rules.append(r)
         idx = len(self._scene_rules) - 1
@@ -1537,6 +1582,7 @@ class MainWindow:
         self._scene_lb.selection_set(idx)
         self._scene_lb.see(idx)
         self._scene_save()
+
 
     def _scene_apply_edit(self) -> None:
         name     = self._scene_var_name.get().strip()
@@ -1560,12 +1606,15 @@ class MainWindow:
         except ValueError:
             click_x = click_y = None
 
+        target_profile = self._scene_var_target_profile.get() if action == "run_profile" else None
+
         if self._scene_sel is not None and self._scene_sel < len(self._scene_rules):
             # Update existing selected rule
             r = self._scene_rules[self._scene_sel]
             r.name = name; r.image_path = imgpath; r.action = action
             r.enabled = enabled; r.confidence = conf; r.cooldown = cool
             r.click_x = click_x; r.click_y = click_y
+            r.target_profile_name = target_profile
             idx = self._scene_sel
         else:
             # No selection → append as new rule
@@ -1574,6 +1623,7 @@ class MainWindow:
                 confidence=conf, cooldown=cool, enabled=enabled,
                 order_idx=len(self._scene_rules),
                 click_x=click_x, click_y=click_y,
+                target_profile_name=target_profile,
             )
             self._scene_rules.append(r)
             idx = len(self._scene_rules) - 1
@@ -1583,6 +1633,7 @@ class MainWindow:
         self._scene_lb.selection_set(idx)
         self._scene_lb.see(idx)
         self._scene_save()
+
 
     def _scene_browse(self) -> None:
         from tkinter import filedialog
@@ -1871,7 +1922,14 @@ class MainWindow:
         return hwnd, rect   # rect = (x, y, w, h) or None
 
     def _scene_start(self) -> None:
-        active = [r for r in self._scene_rules if r.enabled and r.image_path]
+        active = [
+            r for r in self._scene_rules
+            if r.enabled and (
+                r.image_path or 
+                (r.click_x is not None and r.click_y is not None) or 
+                (r.action == "run_profile" and r.target_profile_name)
+            )
+        ]
         if not active:
             messagebox.showwarning("場景腳本", "沒有啟用的規則，請先新增並套用規則")
             return
@@ -1886,10 +1944,11 @@ class MainWindow:
             on_fired=lambda rule: self._root.after(
                 0, lambda r=rule: self._scene_log_append(
                     f"▶ {r.name or r.image_path.split(chr(47))[-1].split(chr(92))[-1]}"
-                    f" → {'點擊' if r.action == 'click' else '轉珠'}\n"
+                    f" → {'點擊' if r.action == 'click' else ('執行設定檔' if r.action == 'run_profile' else '轉珠')}\n"
                 )),
             get_win_info=self._scene_get_win_info,
             base_dir=_app_dir(),
+            load_profile_steps=self._scene_load_profile_steps,
         )
         self._btn_scene_run.config(
             text="■  停止場景腳本", style="Stop.TButton", command=self._scene_stop)
@@ -1900,6 +1959,22 @@ class MainWindow:
             self._scene_runner.stop()
         self._btn_scene_run.config(
             text="▶  開始場景腳本", style="Start.TButton", command=self._scene_start)
+
+    def _scene_load_profile_steps(self, profile_name: str, region: Optional[Tuple[int, int, int, int]]) -> List[ClickStep]:
+        """場景腳本執行時的自動化設定檔步驟載入與座標轉換"""
+        res = self._db.load_profile(profile_name)
+        if not res:
+            return []
+        profile, steps = res
+        if region:
+            ref_x, ref_y = self._tab3_win.get("ref", (0, 0))
+            ref_size = self._tab3_win.get("ref_size")
+            sx = region[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
+            sy = region[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
+            steps = [self._transform_step(s, ref_x, ref_y, region[0], region[1], sx, sy)
+                     for s in steps]
+        return steps
+
 
     def _scene_update_orb_label(self) -> None:
         if self._scene_lbl_orb is None:
@@ -2234,9 +2309,9 @@ class MainWindow:
         btn = ttk.Button(inner, text="⊕  擷取座標",
                          style="Accent.TButton", command=self._capture_position)
         btn.pack(side=tk.LEFT)
-        _Tip(btn, "點擊按鈕或按 S 鍵，將目前游標位置填入步驟編輯器")
+        _Tip(btn, "點擊按鈕或按 F8 鍵，將目前游標位置填入輸入框")
 
-        tk.Label(inner, text="  ← S 鍵快速觸發", bg=_C["card"],
+        tk.Label(inner, text="  ← F8 鍵快速觸發", bg=_C["card"],
                  fg=_C["text_muted"], font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=6)
 
         # hotkey help button — always visible on the right
@@ -2258,14 +2333,13 @@ class MainWindow:
 
         rows = [
             ("⌨  全域快捷鍵", None),
+            ("F8",  "擷取游標座標（填入目前分頁的座標輸入框）"),
             ("F9",  "自動化分頁 — 切換錄製狀態（開始 / 結束）"),
             ("F10", "自動化分頁 — 切換執行狀態（開始 / 停止）"),
             ("F11", "轉珠分頁 — 執行轉珠（截圖→辨識→求解→拖曳）"),
             ("Space", "執行 / 錄製中 — 立即停止"),
-            ("", None),
-            ("⌨  步驟編輯器", None),
-            ("F8",  "新增/編輯步驟視窗 — 擷取目前游標座標填入 X/Y"),
         ]
+
 
         frm = tk.Frame(win, bg=_C["bg"])
         frm.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
