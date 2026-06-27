@@ -1232,8 +1232,6 @@ class MainWindow:
                   font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(row1, text="📂 瀏覽", style="Ghost.TButton",
                    command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(row1, text="📷 框選", style="Ghost.TButton",
-                   command=self._scene_screenshot_select).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(row1, text="🔴 點擊錄製", style="Record.TButton",
                    command=self._scene_record_click).pack(side=tk.LEFT)
 
@@ -1764,24 +1762,6 @@ class MainWindow:
         self._scene_update_preview()
         self._scene_update_mode_hint()
 
-    def _scene_screenshot_select(self) -> None:
-        """Countdown → screenshot → let user draw a selection → fill form."""
-        def on_done(path: str | None) -> None:
-            if not path:
-                return
-            self._scene_var_imgpath.set(path)
-            if not self._scene_var_name.get().strip():
-                import time as _t
-                self._scene_var_name.set(f"規則_{_t.strftime('%H%M%S')}")
-            self._scene_update_preview()
-            self._scene_update_mode_hint()
-
-        _ScreenCapSelector(
-            self._root,
-            save_dir=os.path.join(_app_dir(), "images", "scene"),
-            on_done=on_done,
-        )
-
     def _scene_save(self) -> None:
         try:
             self._db.save_scene_rules(self._scene_rules, self._scene_profile)
@@ -1909,18 +1889,18 @@ class MainWindow:
     def _scene_load_custom_tos_preset(self, profile_name: str = "摩靈傳說_NEW關卡_推進腳本") -> None:
         """Load 摩靈傳說_NEW關卡_推進腳本 preset using user-cropped templates."""
         presets = [
-            ("珠盤就緒",               "user_battle_banner.png",     "orb_solve", 0.75, 15.0, 0,   0),
+            ("珠盤就緒",               "user_battle_banner.png",     "orb_solve", 0.70, 15.0, 0,   0),
             ("斷線重連",               "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0),
             ("知道了",                 "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0),
             ("知道了(1h提示)",          "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0),
             ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
             ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
-            ("選第一個盟友",           "user_select_ally.png",       "click",     0.85,  3.0, 0,   0),
-            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.85,  5.0, 256, 3),
-            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.82,  5.0, 56,  77),
-            ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.82, 10.0, 0,   0),
-            ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.80,  5.0, 0,   0),
-            ("點摩靈按鈕",             "user_btn_maling.png",        "click",     0.80,  5.0, 0,   0),
+            ("選第一個盟友",           "user_select_ally.png",       "click",     0.75,  3.0, 0,   0),
+            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.75,  5.0, 256, 3),
+            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.75,  5.0, 56,  77),
+            ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0),
+            ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.70,  5.0, 0,   0),
+            ("點摩靈按鈕",             "user_btn_maling.png",        "click",     0.70,  5.0, 0,   0),
         ]
         self._scene_apply_preset(presets, profile_name)
 
