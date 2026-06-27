@@ -1021,6 +1021,12 @@ class MainWindow:
         w = self._orb_canvas.winfo_width()
         h = self._orb_canvas.winfo_height()
         self._orb_canvas.coords(self._orb_canvas_hint, w // 2, h // 2)
+        # 視窗大小改變時，若有已辨識盤面或校準預覽圖，自動重繪以適應新尺寸
+        if hasattr(self, "_last_board") and self._last_board:
+            self._orb_draw_board(self._last_board)
+        elif hasattr(self, "_last_preview_path") and self._last_preview_path:
+            self._orb_show_preview_image(self._last_preview_path)
+
 
     def _orb_set_preset(self, beam: int, steps: int) -> None:
         self._orb_var_beam.set(str(beam))
@@ -2057,6 +2063,8 @@ class MainWindow:
 
     def _orb_draw_board(self, board) -> None:
         from services.orb_board import ORB_COLOR
+        self._last_board = board
+        self._last_preview_path = None
         self._orb_canvas.delete("all")
         rows = len(board)
         cols = len(board[0]) if board else 6
@@ -2076,14 +2084,18 @@ class MainWindow:
                 y2 = (r + 1) * cell_h - pad
                 self._orb_canvas.create_oval(
                     x1, y1, x2, y2, fill=color, outline="")
+                # 「光」屬性（黃底）使用深色字體提高視覺對比度與易讀性
+                text_color = "#1e293b" if orb == "光" else "white"
                 self._orb_canvas.create_text(
                     (x1 + x2) / 2, (y1 + y2) / 2,
-                    text=orb, fill="white",
+                    text=orb, fill=text_color,
                     font=("Segoe UI", font_size, "bold"))
 
     def _orb_show_preview_image(self, path: str) -> None:
         try:
             from PIL import Image, ImageTk
+            self._last_board = None
+            self._last_preview_path = path
             img = Image.open(path)
             cw = max(self._orb_canvas.winfo_width(),  200)
             ch = max(self._orb_canvas.winfo_height(), 150)
