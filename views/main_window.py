@@ -1459,6 +1459,26 @@ class MainWindow:
         finally:
             self._scene_loading = False
 
+    def _scene_clear_form(self) -> None:
+        """清空編輯表單中所有變數，重置為預設狀態"""
+        self._scene_loading = True
+        try:
+            self._scene_var_name.set("")
+            self._scene_var_imgpath.set("")
+            self._scene_var_action.set("click")
+            self._scene_var_conf.set("0.8")
+            self._scene_var_cool.set("3.0")
+            self._scene_var_enabled.set(True)
+            self._scene_var_click_x.set("")
+            self._scene_var_click_y.set("")
+            self._scene_var_target_profile.set("")
+            self._scene_action_display_var.set("🖼  點擊（偵測圖片點中心）")
+            self._scene_update_preview()
+            self._scene_update_mode_hint()
+        finally:
+            self._scene_loading = False
+
+
 
 
     def _scene_update_mode_hint(self) -> None:
@@ -1540,7 +1560,9 @@ class MainWindow:
         self._scene_rules.pop(idx)
         self._scene_sel = None
         self._scene_refresh_list()
+        self._scene_clear_form()
         self._scene_save()
+
 
     def _scene_duplicate(self) -> None:
         if self._scene_sel is None or self._scene_sel >= len(self._scene_rules):
@@ -1777,6 +1799,7 @@ class MainWindow:
             self._scene_rules = []
         self._scene_sel = None
         self._scene_refresh_list()
+        self._scene_clear_form()
 
     def _scene_profile_new(self) -> None:
         from tkinter.simpledialog import askstring
@@ -1794,6 +1817,8 @@ class MainWindow:
         self._scene_sel = None
         self._scene_refresh_profiles()
         self._scene_refresh_list()
+        self._scene_clear_form()
+
 
     def _scene_profile_delete(self) -> None:
         names = self._db.list_scene_profile_names()
