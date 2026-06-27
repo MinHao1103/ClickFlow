@@ -17,6 +17,8 @@ a = Analysis(
         'pynput._util',
         'pynput.backend.win32',
         'pynput._util.win32',
+        'pynput.mouse._win32',
+        'pynput.keyboard._win32',
         # opencv / numpy
         'cv2',
         'numpy',

@@ -1,6 +1,15 @@
 import logging
 import sys
 from pathlib import Path
+import ctypes
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 _LOG_DIR = Path("logs")
 _LOG_DIR.mkdir(exist_ok=True)
