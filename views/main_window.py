@@ -3127,6 +3127,9 @@ class _StepEditorDialog(tk.Toplevel):
         # 監聽關閉事件，釋放 grab
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
+        # S 鍵快速擷取目前游標座標填入 X/Y（焦點在輸入框時不觸發）
+        self.bind("<Key-s>", self._on_key_capture)
+
         # 置中對齊
         self.update_idletasks()
         self._recenter()
@@ -3581,6 +3584,17 @@ class _StepEditorDialog(tk.Toplevel):
 
         return ClickStep(x=x, y=y, count=count, delay=delay,
                          action_type=action, keyboard_text=kb)
+
+    def _on_key_capture(self, _e=None) -> None:
+        """S 鍵快速把目前游標位置填入 X/Y（焦點在 Entry 時略過，避免干擾打字）"""
+        focused = self.focus_get()
+        if isinstance(focused, (ttk.Entry, tk.Entry)):
+            return  # 讓 S 正常打字
+        import pyautogui
+        x, y = pyautogui.position()
+        dx, dy = self._parent._get_window_offset(self._binding)
+        self._var_x.set(str(x - dx))
+        self._var_y.set(str(y - dy))
 
     def _capture_position(self) -> None:
         self.grab_release()
