@@ -2139,6 +2139,65 @@ class MainWindow:
         tk.Label(inner, text="  ← S 鍵快速觸發", bg=_C["card"],
                  fg=_C["text_muted"], font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=6)
 
+        # hotkey help button — always visible on the right
+        tk.Frame(inner, bg=_C["border"], width=1).pack(
+            side=tk.RIGHT, fill=tk.Y, padx=12, pady=2)
+        hk_btn = ttk.Button(inner, text="⌨  快捷鍵",
+                            style="Ghost.TButton", command=self._show_hotkey_help)
+        hk_btn.pack(side=tk.RIGHT)
+        _Tip(hk_btn, "顯示所有快捷鍵說明")
+
+    def _show_hotkey_help(self) -> None:
+        """彈出快捷鍵說明視窗"""
+        win = tk.Toplevel(self._root)
+        win.title("快捷鍵說明")
+        win.configure(bg=_C["bg"])
+        win.resizable(False, False)
+        win.transient(self._root)
+        win.grab_set()
+
+        rows = [
+            ("⌨  全域快捷鍵", None),
+            ("F9",  "自動化分頁 — 切換錄製狀態（開始 / 結束）"),
+            ("F10", "自動化分頁 — 切換執行狀態（開始 / 停止）"),
+            ("F11", "轉珠分頁 — 執行轉珠（截圖→辨識→求解→拖曳）"),
+            ("Space", "執行 / 錄製中 — 立即停止"),
+            ("", None),
+            ("⌨  步驟編輯器", None),
+            ("F8",  "新增/編輯步驟視窗 — 擷取目前游標座標填入 X/Y"),
+        ]
+
+        frm = tk.Frame(win, bg=_C["bg"])
+        frm.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
+
+        for key, desc in rows:
+            if desc is None:
+                # section header or spacer
+                if key:
+                    tk.Label(frm, text=key, bg=_C["bg"],
+                             fg=_C["accent"], font=("Segoe UI", 10, "bold")).pack(
+                        anchor=tk.W, pady=(10, 4))
+                    ttk.Separator(frm, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 6))
+                continue
+            row = tk.Frame(frm, bg=_C["bg"])
+            row.pack(fill=tk.X, pady=3)
+            tk.Label(row, text=key, bg=_C["card"],
+                     fg=_C["accent"], font=("Segoe UI", 10, "bold"),
+                     width=7, anchor=tk.CENTER,
+                     relief="flat", padx=6, pady=3).pack(side=tk.LEFT)
+            tk.Label(row, text=desc, bg=_C["bg"],
+                     fg=_C["text"], font=("Segoe UI", 9),
+                     anchor=tk.W).pack(side=tk.LEFT, padx=(12, 0))
+
+        ttk.Button(win, text="關閉", style="Ghost.TButton",
+                   command=lambda: (win.grab_release(), win.destroy())
+                   ).pack(pady=(8, 16))
+
+        win.update_idletasks()
+        px = self._root.winfo_x() + (self._root.winfo_width()  - win.winfo_reqwidth())  // 2
+        py = self._root.winfo_y() + (self._root.winfo_height() - win.winfo_reqheight()) // 2
+        win.geometry(f"+{px}+{py}")
+
     # ── step editor ───────────────────────────────────────────────────────────
 
     def _add_step_manually(self) -> None:
