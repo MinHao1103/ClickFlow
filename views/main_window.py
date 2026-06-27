@@ -948,7 +948,7 @@ class MainWindow:
             command=self._orb_execute)
         self._btn_orb_run.pack(side=tk.BOTTOM, fill=tk.X, padx=PX, pady=(0, 4))
 
-        tk.Label(parent, text="快捷鍵：F8", bg=_C["bg"],
+        tk.Label(parent, text="快捷鍵：F11", bg=_C["bg"],
                  fg=_C["text_muted"], font=("Segoe UI", 8, "italic")).pack(
             side=tk.BOTTOM, anchor=tk.W, padx=PX)
 
