@@ -3127,6 +3127,8 @@ class _StepEditorDialog(tk.Toplevel):
         # 監聽關閉事件，釋放 grab
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
+        # F8 鍵快速擷取目前游標座標填入 X/Y
+        self.bind("<F8>", self._on_key_capture)
 
         # 置中對齊
         self.update_idletasks()
@@ -3584,7 +3586,16 @@ class _StepEditorDialog(tk.Toplevel):
                          action_type=action, keyboard_text=kb)
 
 
+    def _on_key_capture(self, _e=None) -> None:
+        """F8 鍵快速把目前游標位置填入 X/Y"""
+        import pyautogui
+        x, y = pyautogui.position()
+        dx, dy = self._parent._get_window_offset(self._binding)
+        self._var_x.set(str(x - dx))
+        self._var_y.set(str(y - dy))
+
     def _capture_position(self) -> None:
+
         self.grab_release()
         self.withdraw()
         def on_done(x, y):
