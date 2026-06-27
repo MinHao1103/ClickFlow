@@ -120,9 +120,15 @@ class SceneRunner:
                 # Refresh window binding at most once per second
                 now = time.time()
                 if get_win_info and now >= hwnd_refresh_at:
-                    cached_hwnd, cached_rect = get_win_info()
+                    win_info = get_win_info()
+                    if win_info and len(win_info) == 4:
+                        cached_hwnd, cached_rect, cached_sx, cached_sy = win_info
+                    elif win_info:
+                        cached_hwnd, cached_rect = win_info[:2]
+                        cached_sx, cached_sy = 1.0, 1.0
                     hwnd_refresh_at = now + 1.0
                 hwnd, region = cached_hwnd, cached_rect
+                sx, sy = cached_sx, cached_sy
 
                 fired = False
 
@@ -144,7 +150,7 @@ class SceneRunner:
 
                         # Pre-solve: clear lingering popups before dragging
                         self._flush_click_rules(
-                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct)
+                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct, sx=sx, sy=sy)
 
                         cooldowns[key] = time.time() + rule.cooldown
                         on_fired(rule)
@@ -160,7 +166,7 @@ class SceneRunner:
 
                         # Post-solve: dismiss popups that appeared during drag
                         self._flush_click_rules(
-                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct)
+                            active, cooldowns, region, hwnd, on_status, on_fired, sct=sct, sx=sx, sy=sy)
 
                         # Wait for combo animation
                         self._stop_event.wait(3.0)
@@ -246,7 +252,7 @@ class SceneRunner:
 
                     # ── click rule ───────────────────────────────────────────
                     matched, target_x, target_y = self._try_click_rule(
-                        rule, img_path, region, cycle_shot)
+                        rule, img_path, region, cycle_shot, sx, sy)
                     if not matched:
                         continue
 
@@ -287,7 +293,7 @@ class SceneRunner:
 
     @staticmethod
     def _try_click_rule(rule: SceneRule, img_path: str,
-                        region, haystack=None) -> tuple[bool, int, int]:
+                        region, haystack=None, sx: float = 1.0, sy: float = 1.0) -> tuple[bool, int, int]:
         """Try to match a click rule. Returns (matched, target_x, target_y).
 
         When haystack is a pre-taken PIL screenshot (full screen), locate() is
@@ -302,12 +308,25 @@ class SceneRunner:
             return False, 0, 0
 
         try:
+            import cv2
+            
+            # Load template image
+            template = cv2.imread(img_path)
+            if template is None:
+                return False, 0, 0
+                
+            # Resize template dynamically based on window scale factors
+            if abs(sx - 1.0) > 0.01 or abs(sy - 1.0) > 0.01:
+                tw = max(1, int(round(template.shape[1] * sx)))
+                th = max(1, int(round(template.shape[0] * sy)))
+                template = cv2.resize(template, (tw, th), interpolation=cv2.INTER_AREA)
+
             if haystack is not None:
-                # haystack is a full-screen PIL image; locate returns screen-absolute coords
-                loc = pyautogui.locate(img_path, haystack,
+                # haystack is a full-screen PIL image; locate accepts numpy array as template
+                loc = pyautogui.locate(template, haystack,
                                        confidence=rule.confidence)
             else:
-                loc = pyautogui.locateOnScreen(img_path, region=region,
+                loc = pyautogui.locateOnScreen(template, region=region,
                                                confidence=rule.confidence)
         except Exception:
             return False, 0, 0
@@ -319,12 +338,12 @@ class SceneRunner:
             return True, rule.click_x, rule.click_y
 
         cx, cy = pyautogui.center(loc)
-        return True, cx + rule.click_dx, cy + rule.click_dy
+        return True, cx + int(round(rule.click_dx * sx)), cy + int(round(rule.click_dy * sy))
 
     # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
 
     def _flush_click_rules(self, active, cooldowns, region,
-                           hwnd, on_status, on_fired, max_passes: int = 12, sct=None) -> None:
+                           hwnd, on_status, on_fired, max_passes: int = 12, sct=None, sx: float = 1.0, sy: float = 1.0) -> None:
         """Keep clicking matching click rules until a full pass finds nothing.
 
         Handles stacked dialogs (確定 → 知道了 → 確定 → …).
@@ -342,7 +361,7 @@ class SceneRunner:
                 if not rule.enabled or rule.action != "click":
                     continue
                 matched, target_x, target_y = self._try_click_rule(
-                    rule, img_path, region, pass_shot)
+                    rule, img_path, region, pass_shot, sx, sy)
                 if not matched:
                     continue
 

@@ -1941,13 +1941,18 @@ class MainWindow:
 
     def _scene_get_win_info(self):
         if not self._tab3_win.get("title"):
-            return None, None
+            return None, None, 1.0, 1.0
         hwnd = self._resolve_bound_window(self._tab3_win)
         if not hwnd:
-            return None, None
+            return None, None, 1.0, 1.0
         from services.window_manager import get_window_rect
         rect = get_window_rect(hwnd)
-        return hwnd, rect   # rect = (x, y, w, h) or None
+        if not rect:
+            return None, None, 1.0, 1.0
+        ref_size = self._tab3_win.get("ref_size")
+        sx = rect[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
+        sy = rect[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
+        return hwnd, rect, sx, sy
 
     def _scene_start(self) -> None:
         active = [
