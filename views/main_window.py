@@ -630,6 +630,18 @@ class MainWindow:
                 self._scene_rules = saved_rules
                 self._scene_refresh_profiles()
                 self._scene_refresh_list()
+
+            # Ensure custom screenshot-based preset exists
+            _NP = "摩靈傳說_NEW關卡_推進腳本"
+            profiles = self._db.list_scene_profile_names()
+            if _NP not in profiles:
+                saved = self._scene_profile
+                saved_rules = list(self._scene_rules)
+                self._scene_load_custom_tos_preset(_NP)
+                self._scene_profile = saved
+                self._scene_rules = saved_rules
+                self._scene_refresh_profiles()
+                self._scene_refresh_list()
         except Exception:
             pass
         self._mouse_tracker.start()
@@ -1891,6 +1903,24 @@ class MainWindow:
             ("翻下一頁",               "scene_btn_nextpage.png",     "click",     0.82, 10.0, 0,   0),
             ("點冒險地圖",             "scene_btn_adventure.png",    "click",     0.80,  5.0, 0,   0),
             ("點摩靈按鈕",             "scene_btn_maling.png",       "click",     0.80,  5.0, 0,   0),
+        ]
+        self._scene_apply_preset(presets, profile_name)
+
+    def _scene_load_custom_tos_preset(self, profile_name: str = "摩靈傳說_NEW關卡_推進腳本") -> None:
+        """Load 摩靈傳說_NEW關卡_推進腳本 preset using user-cropped templates."""
+        presets = [
+            ("珠盤就緒",               "user_battle_banner.png",     "orb_solve", 0.75, 15.0, 0,   0),
+            ("斷線重連",               "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0),
+            ("知道了",                 "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0),
+            ("知道了(1h提示)",          "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0),
+            ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
+            ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
+            ("選第一個盟友",           "user_select_ally.png",       "click",     0.85,  3.0, 0,   0),
+            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.85,  5.0, 256, 3),
+            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.82,  5.0, 56,  77),
+            ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.82, 10.0, 0,   0),
+            ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.80,  5.0, 0,   0),
+            ("點摩靈按鈕",             "user_btn_maling.png",        "click",     0.80,  5.0, 0,   0),
         ]
         self._scene_apply_preset(presets, profile_name)
 
