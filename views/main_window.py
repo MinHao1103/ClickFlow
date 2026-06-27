@@ -589,6 +589,8 @@ class MainWindow:
         self._scene_preview_photo = None           # keep PhotoImage alive
         self._tab3_win: dict = {"hwnd": None, "title": None, "ref": (0, 0), "map": {}}
         self._scene_profile: str = "摩靈傳說"      # currently loaded profile name
+        self._scene_loading = False
+
 
         # ── Orb config (shared by Tab 2 and Tab 3, loaded once from DB) ──────
         self._orb_config      = self._db.load_orb_config("default")
@@ -1300,12 +1302,11 @@ class MainWindow:
         tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
 
-        btn_row_apply = tk.Frame(form, bg=_C["bg"])
-        btn_row_apply.pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_row_apply, text="套用（更新選中）", style="Accent.TButton",
-                   command=self._scene_apply_edit).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 4))
-        ttk.Button(btn_row_apply, text="＋ 新增規則", style="Start.TButton",
-                   command=self._scene_add_from_form).pack(side=tk.LEFT, expand=True, fill=tk.X)
+        # Register traces for real-time rule auto-saving
+        for var in (self._scene_var_name, self._scene_var_enabled, self._scene_var_imgpath,
+                    self._scene_var_action, self._scene_var_click_x, self._scene_var_click_y,
+                    self._scene_var_target_profile, self._scene_var_conf, self._scene_var_cool):
+            var.trace_add("write", self._scene_on_field_change)
 
         ttk.Separator(parent, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=PX, pady=(0, 4))
 
@@ -1321,10 +1322,13 @@ class MainWindow:
                    command=self._scene_move_up).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(btn_row, text="↓", style="Ghost.TButton", width=3,
                    command=self._scene_move_down).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="＋ 新增", style="Start.TButton",
+                   command=self._scene_add).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="複製", style="Ghost.TButton",
                    command=self._scene_duplicate).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="✕ 刪除", style="GhostDanger.TButton",
                    command=self._scene_delete).pack(side=tk.LEFT)
+
 
         lb_wrap = tk.Frame(parent, bg=_C["card"],
                            highlightthickness=1, highlightbackground=_C["border"])
@@ -1433,22 +1437,28 @@ class MainWindow:
             return
         self._scene_sel = idx
         r = self._scene_rules[idx]
-        self._scene_var_name.set(r.name)
-        self._scene_var_imgpath.set(r.image_path)
-        self._scene_var_action.set(r.action)
-        self._scene_var_conf.set(str(r.confidence))
-        self._scene_var_cool.set(str(r.cooldown))
-        self._scene_var_enabled.set(r.enabled)
-        self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
-        self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
-        self._scene_var_target_profile.set(r.target_profile_name or "")
-        
-        # 同步更新動作類型的下拉選單顯示文字
-        disp = _SCENE_ACTION_MAP_VAL_TO_DISPLAY.get(r.action, "🖼  點擊（偵測圖片點中心）")
-        self._scene_action_display_var.set(disp)
 
-        self._scene_update_preview()
-        self._scene_update_mode_hint()
+        self._scene_loading = True
+        try:
+            self._scene_var_name.set(r.name)
+            self._scene_var_imgpath.set(r.image_path)
+            self._scene_var_action.set(r.action)
+            self._scene_var_conf.set(str(r.confidence))
+            self._scene_var_cool.set(str(r.cooldown))
+            self._scene_var_enabled.set(r.enabled)
+            self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
+            self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
+            self._scene_var_target_profile.set(r.target_profile_name or "")
+            
+            # 同步更新動作類型的下拉選單顯示文字
+            disp = _SCENE_ACTION_MAP_VAL_TO_DISPLAY.get(r.action, "🖼  點擊（偵測圖片點中心）")
+            self._scene_action_display_var.set(disp)
+
+            self._scene_update_preview()
+            self._scene_update_mode_hint()
+        finally:
+            self._scene_loading = False
+
 
 
     def _scene_update_mode_hint(self) -> None:
@@ -1576,95 +1586,64 @@ class MainWindow:
         self._scene_lb.selection_set(self._scene_sel)
         self._scene_save()
 
-    def _scene_add_from_form(self) -> None:
-        """Always append a new rule using current form values, regardless of selection."""
-        name    = self._scene_var_name.get().strip()
-        imgpath = self._scene_var_imgpath.get().strip()
-        action  = self._scene_var_action.get()
-        enabled = self._scene_var_enabled.get()
-        try:
-            conf = float(self._scene_var_conf.get() or 0.8)
-        except ValueError:
-            conf = 0.8
-        try:
-            cool = float(self._scene_var_cool.get() or 3.0)
-        except ValueError:
-            cool = 3.0
-        try:
-            click_x = int(self._scene_var_click_x.get().strip()) \
-                if self._scene_var_click_x.get().strip() else None
-            click_y = int(self._scene_var_click_y.get().strip()) \
-                if self._scene_var_click_y.get().strip() else None
-        except ValueError:
-            click_x = click_y = None
+    def _scene_on_field_change(self, *args) -> None:
+        if getattr(self, "_scene_loading", False):
+            return
+        if self._scene_sel is None or self._scene_sel >= len(self._scene_rules):
+            return
+        r = self._scene_rules[self._scene_sel]
 
-        target_profile = self._scene_var_target_profile.get() if action == "run_profile" else None
-
-        r = SceneRule(
-            image_path=imgpath, action=action, name=name or "新規則",
-            confidence=conf, cooldown=cool, enabled=enabled,
-            order_idx=len(self._scene_rules),
-            click_x=click_x, click_y=click_y,
-            target_profile_name=target_profile,
-        )
-        self._scene_rules.append(r)
-        idx = len(self._scene_rules) - 1
-        self._scene_sel = idx
-        self._scene_refresh_list()
-        self._scene_lb.selection_set(idx)
-        self._scene_lb.see(idx)
-        self._scene_save()
-
-
-    def _scene_apply_edit(self) -> None:
-        name     = self._scene_var_name.get().strip()
-        imgpath  = self._scene_var_imgpath.get().strip()
-        action   = self._scene_var_action.get()
-        enabled  = self._scene_var_enabled.get()
-        try:
-            conf = float(self._scene_var_conf.get() or 0.8)
-        except ValueError:
-            conf = 0.8
-        try:
-            cool = float(self._scene_var_cool.get() or 3.0)
-        except ValueError:
-            cool = 3.0
+        r.name = self._scene_var_name.get().strip()
+        r.image_path = self._scene_var_imgpath.get().strip()
+        r.action = self._scene_var_action.get()
+        r.enabled = self._scene_var_enabled.get()
 
         try:
-            click_x = int(self._scene_var_click_x.get().strip()) \
-                if self._scene_var_click_x.get().strip() else None
-            click_y = int(self._scene_var_click_y.get().strip()) \
-                if self._scene_var_click_y.get().strip() else None
+            r.confidence = float(self._scene_var_conf.get() or 0.8)
         except ValueError:
-            click_x = click_y = None
+            r.confidence = 0.8
 
-        target_profile = self._scene_var_target_profile.get() if action == "run_profile" else None
+        try:
+            r.cooldown = float(self._scene_var_cool.get() or 3.0)
+        except ValueError:
+            r.cooldown = 3.0
 
-        if self._scene_sel is not None and self._scene_sel < len(self._scene_rules):
-            # Update existing selected rule
-            r = self._scene_rules[self._scene_sel]
-            r.name = name; r.image_path = imgpath; r.action = action
-            r.enabled = enabled; r.confidence = conf; r.cooldown = cool
-            r.click_x = click_x; r.click_y = click_y
-            r.target_profile_name = target_profile
-            idx = self._scene_sel
+        try:
+            x_str = self._scene_var_click_x.get().strip()
+            y_str = self._scene_var_click_y.get().strip()
+            r.click_x = int(x_str) if x_str else None
+            r.click_y = int(y_str) if y_str else None
+        except ValueError:
+            r.click_x = r.click_y = None
+
+        r.target_profile_name = self._scene_var_target_profile.get() if r.action == "run_profile" else None
+
+        # 重新生成列表顯示文字
+        chk  = "☑" if r.enabled else "☐"
+        name = r.name or r.image_path.split("/")[-1].split("\\")[-1] or "新規則"
+        cd   = f"{r.cooldown:g}s"
+        if r.action == "orb_solve":
+            detail = f"🔮 轉珠  ({cd})"
+        elif r.action == "run_profile":
+            detail = f"⚙ 執行「{r.target_profile_name or '未指定'}」  ({cd})"
+        elif not r.image_path and r.click_x is not None and r.click_y is not None:
+            detail = f"📌 ({r.click_x},{r.click_y})  ({cd})"
         else:
-            # No selection → append as new rule
-            r = SceneRule(
-                image_path=imgpath, action=action, name=name or "新規則",
-                confidence=conf, cooldown=cool, enabled=enabled,
-                order_idx=len(self._scene_rules),
-                click_x=click_x, click_y=click_y,
-                target_profile_name=target_profile,
-            )
-            self._scene_rules.append(r)
-            idx = len(self._scene_rules) - 1
-            self._scene_sel = idx
+            detail = f"🖼 點擊  ({cd})"
 
-        self._scene_refresh_list()
-        self._scene_lb.selection_set(idx)
-        self._scene_lb.see(idx)
+        # 在寫入 Listbox 時阻斷回調以防閃爍與重複觸發
+        self._scene_loading = True
+        try:
+            self._scene_lb.delete(self._scene_sel)
+            self._scene_lb.insert(self._scene_sel, f"  {chk}  {name}  →  {detail}")
+            fg = _C["text"] if r.enabled else _C["text_muted"]
+            self._scene_lb.itemconfig(self._scene_sel, foreground=fg)
+            self._scene_lb.selection_set(self._scene_sel)
+        finally:
+            self._scene_loading = False
+
         self._scene_save()
+
 
 
     def _scene_browse(self) -> None:
