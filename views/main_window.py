@@ -544,6 +544,18 @@ class _ScreenCapSelector:
         self._on_done(path)
 
 
+_SCENE_ACTION_MAP_DISPLAY_TO_VAL = {
+    "🖼  點擊（偵測圖片點中心）": "click",
+    "⚙  執行步驟（偵測成功跑自動化）": "run_profile",
+    "🔮  自動轉珠（戰鬥中自動解盤）": "orb_solve"
+}
+_SCENE_ACTION_MAP_VAL_TO_DISPLAY = {
+    "click": "🖼  點擊（偵測圖片點中心）",
+    "run_profile": "⚙  執行步驟（偵測成功跑自動化）",
+    "orb_solve": "🔮  自動轉珠（戰鬥中自動解盤）"
+}
+
+
 # ── MainWindow ────────────────────────────────────────────────────────────────
 class MainWindow:
     def __init__(self, root: tk.Tk, db: DatabaseManager) -> None:
@@ -1170,8 +1182,32 @@ class MainWindow:
         ttk.Checkbutton(row0, text="啟用",
                         variable=self._scene_var_enabled).pack(side=tk.LEFT)
 
-        # Image path + capture buttons
-        row1 = tk.Frame(form, bg=_C["bg"])
+        # Action Selector Combobox (Space saving & dynamic)
+        row_action = tk.Frame(form, bg=_C["bg"])
+        row_action.pack(fill=tk.X, pady=(4, 6))
+        tk.Label(row_action, text="動作類型", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._scene_var_action = tk.StringVar(value="click")
+        self._scene_action_display_var = tk.StringVar(value="🖼  點擊（偵測圖片點中心）")
+
+        def _on_action_cb_selected(_e=None):
+            disp = self._scene_action_display_var.get()
+            val = _SCENE_ACTION_MAP_DISPLAY_TO_VAL.get(disp, "click")
+            self._scene_var_action.set(val)
+            self._scene_update_mode_hint()
+
+        self._scene_action_cb = ttk.Combobox(
+            row_action, textvariable=self._scene_action_display_var,
+            state="readonly", font=("Segoe UI", 9), width=26)
+        self._scene_action_cb.pack(side=tk.LEFT)
+        self._scene_action_cb["values"] = list(_SCENE_ACTION_MAP_DISPLAY_TO_VAL.keys())
+        self._scene_action_cb.bind("<<ComboboxSelected>>", _on_action_cb_selected)
+
+        # Dynamic Section 1: Image path & preview
+        self._scene_image_section = tk.Frame(form, bg=_C["bg"])
+        
+        row1 = tk.Frame(self._scene_image_section, bg=_C["bg"])
         row1.pack(fill=tk.X, pady=(0, 4))
         tk.Label(row1, text="圖片", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
@@ -1180,17 +1216,15 @@ class MainWindow:
             lambda *_: self._root.after(50, self._scene_update_preview))
         ttk.Entry(row1, textvariable=self._scene_var_imgpath,
                   font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="瀏覽", style="Ghost.TButton",
+        ttk.Button(row1, text="📂 瀏覽", style="Ghost.TButton",
                    command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(row1, text="框選", style="Ghost.TButton",
-                   command=self._scene_capture).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(row1, text="🔴 錄製", style="Record.TButton",
-                   command=self._scene_record_click).pack(side=tk.LEFT, padx=(0, 2))
-        ttk.Button(row1, text="截圖標記", style="Ghost.TButton",
-                   command=self._scene_screenshot_select).pack(side=tk.LEFT)
+        ttk.Button(row1, text="📷 框選", style="Ghost.TButton",
+                   command=self._scene_screenshot_select).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="🔴 點擊錄製", style="Record.TButton",
+                   command=self._scene_record_click).pack(side=tk.LEFT)
 
-        # Image preview — fixed-height frame prevents Label height=N (chars) issue
-        prev_frame = tk.Frame(form, bg=_C["card"], height=72)
+        # Image preview
+        prev_frame = tk.Frame(self._scene_image_section, bg=_C["card"], height=72)
         prev_frame.pack(fill=tk.X, pady=(0, 6))
         prev_frame.pack_propagate(False)
         self._scene_preview_lbl = tk.Label(
@@ -1198,50 +1232,7 @@ class MainWindow:
             text="（無圖片）", fg=_C["text_muted"], font=("Segoe UI", 8))
         self._scene_preview_lbl.pack(fill=tk.BOTH, expand=True)
 
-        # Action — two big radio buttons with descriptions
-        tk.Label(form, text="偵測到圖片時，自動執行：",
-                 bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(0, 2))
-
-        self._scene_var_action = tk.StringVar(value="click")
-
-        def _make_action_btn(val, title, desc):
-            f = tk.Frame(form, bg=_C["card"],
-                         highlightthickness=1, highlightbackground=_C["border"])
-            f.pack(fill=tk.X, pady=(0, 3))
-            rb = ttk.Radiobutton(f, text=title,
-                                 variable=self._scene_var_action, value=val)
-            rb.pack(anchor=tk.W, padx=8, pady=(4, 0))
-            tk.Label(f, text=desc, bg=_C["card"], fg=_C["text_muted"],
-                     font=("Segoe UI", 8)).pack(anchor=tk.W, padx=24, pady=(0, 4))
-
-        _make_action_btn("click",     "點擊它",
-                         "自動點擊圖片出現的位置（按鈕、確認框）")
-        _make_action_btn("orb_solve", "啟動轉珠 AI",
-                         "執行自動轉珠（用於戰鬥珠盤場景）")
-        _make_action_btn("run_profile", "執行自動化設定檔",
-                         "偵測到圖片（或滿足條件）時，自動執行指定的自動化步驟設定檔")
-
-
-        # Fixed click coordinates (optional — overrides template centre)
-        row_xy = tk.Frame(form, bg=_C["bg"])
-        row_xy.pack(fill=tk.X, pady=(4, 0))
-        tk.Label(row_xy, text="固定座標", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(row_xy, text="X", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
-        self._scene_var_click_x = tk.StringVar()
-        self._numeric_entry(row_xy, self._scene_var_click_x, width=6).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(row_xy, text="Y", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
-        self._scene_var_click_y = tk.StringVar()
-        self._numeric_entry(row_xy, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(row_xy, text="📍", style="Ghost.TButton", width=3,
-                   command=self._capture_position).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(row_xy, text="← F8 鍵", bg=_C["bg"], fg=_C["text_muted"],
-                 font=("Segoe UI", 8)).pack(side=tk.LEFT)
-
-        # Target profile selection row (only shown when action is run_profile)
+        # Dynamic Section 2: Target profile row (only shown for run_profile)
         self._scene_var_target_profile = tk.StringVar()
         self._scene_profile_row = tk.Frame(form, bg=_C["bg"])
         tk.Label(self._scene_profile_row, text="目標設定檔", bg=_C["bg"], fg=_C["text_muted"],
@@ -1261,6 +1252,23 @@ class MainWindow:
         self._scene_cb_target_profile.pack(side=tk.LEFT)
         _refresh_target_profiles()
 
+        # Dynamic Section 3: Fixed click coordinates
+        self._scene_coord_section = tk.Frame(form, bg=_C["bg"])
+        tk.Label(self._scene_coord_section, text="固定座標", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(self._scene_coord_section, text="X", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
+        self._scene_var_click_x = tk.StringVar()
+        self._numeric_entry(self._scene_coord_section, self._scene_var_click_x, width=6).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(self._scene_coord_section, text="Y", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 2))
+        self._scene_var_click_y = tk.StringVar()
+        self._numeric_entry(self._scene_coord_section, self._scene_var_click_y, width=6).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(self._scene_coord_section, text="📍", style="Ghost.TButton", width=3,
+                   command=self._capture_position).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(self._scene_coord_section, text="← F8 鍵", bg=_C["bg"], fg=_C["text_muted"],
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT)
+
         # Dynamic mode hint
         self._scene_mode_lbl = tk.Label(
             form, text="", bg=_C["bg"], fg=_C["accent"], font=("Segoe UI", 8))
@@ -1271,16 +1279,23 @@ class MainWindow:
             var.trace_add("write", lambda *_: self._root.after(0, self._scene_update_mode_hint))
 
 
+
         # Confidence + cooldown
         row3 = tk.Frame(form, bg=_C["bg"])
         row3.pack(fill=tk.X, pady=(4, 6))
-        tk.Label(row3, text="信心度", bg=_C["bg"], fg=_C["text_muted"],
+
+        self._scene_conf_subframe = tk.Frame(row3, bg=_C["bg"])
+        self._scene_conf_subframe.pack(side=tk.LEFT)
+
+        tk.Label(self._scene_conf_subframe, text="信心度", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
         self._scene_var_conf = tk.StringVar(value="0.8")
-        self._numeric_entry(row3, self._scene_var_conf, width=5).pack(side=tk.LEFT, padx=(0, 12))
+        self._numeric_entry(self._scene_conf_subframe, self._scene_var_conf, width=5).pack(side=tk.LEFT, padx=(0, 12))
+
         tk.Label(row3, text="冷卻", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
         self._scene_var_cool = tk.StringVar(value="3.0")
+
         self._numeric_entry(row3, self._scene_var_cool, width=5).pack(side=tk.LEFT, padx=(0, 4))
         tk.Label(row3, text="秒", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 9)).pack(side=tk.LEFT)
@@ -1427,9 +1442,14 @@ class MainWindow:
         self._scene_var_click_x.set("" if r.click_x is None else str(r.click_x))
         self._scene_var_click_y.set("" if r.click_y is None else str(r.click_y))
         self._scene_var_target_profile.set(r.target_profile_name or "")
+        
+        # 同步更新動作類型的下拉選單顯示文字
+        disp = _SCENE_ACTION_MAP_VAL_TO_DISPLAY.get(r.action, "🖼  點擊（偵測圖片點中心）")
+        self._scene_action_display_var.set(disp)
 
         self._scene_update_preview()
         self._scene_update_mode_hint()
+
 
     def _scene_update_mode_hint(self) -> None:
         img = self._scene_var_imgpath.get().strip()
@@ -1438,26 +1458,38 @@ class MainWindow:
         act = self._scene_var_action.get()
         has_coord = bool(x and y)
         if act == "orb_solve":
-            hint = "🔮 模式：轉珠 AI — 偵測珠盤後自動轉珠"
+            hint = "🔮 模式：自動轉珠 — 偵測到戰鬥珠盤時自動求解並執行"
         elif act == "run_profile":
             p = self._scene_var_target_profile.get()
             hint = f"⚙ 模式：偵測成功時執行自動化步驟「{p or '未選擇'}」"
         elif not img and has_coord:
-            hint = "📌 模式：純座標點擊 — 不需圖片，直接點固定位置"
+            hint = "📌 模式：純座標點擊 — 直接點擊固定位置"
         elif img and has_coord:
-            hint = "🎯 模式：圖片觸發 → 點固定座標"
+            hint = "🎯 模式：圖片觸發 → 點擊固定座標"
         elif img and not has_coord:
-            hint = "🖼 模式：圖片偵測 → 點圖片中心（可加偏移）"
+            hint = "🖼 模式：圖片偵測 → 點擊圖片中心"
         else:
             hint = "⚠ 請設定圖片路徑 或 填入固定座標"
         if hasattr(self, "_scene_mode_lbl"):
             self._scene_mode_lbl.config(text=hint)
 
-        if hasattr(self, "_scene_profile_row") and self._scene_profile_row:
+        # 動態顯隱控制 (Dynamic layout packing)
+        if hasattr(self, "_scene_image_section") and self._scene_image_section:
+            # 先將所有選填容器隱藏
+            self._scene_image_section.pack_forget()
+            self._scene_profile_row.pack_forget()
+            self._scene_coord_section.pack_forget()
+            self._scene_conf_subframe.pack_forget()
+
+            # 依動作類型順序 Pack 顯示
+            if act in ("click", "run_profile"):
+                self._scene_image_section.pack(fill=tk.X, pady=(2, 4))
+                self._scene_conf_subframe.pack(side=tk.LEFT)
             if act == "run_profile":
-                self._scene_profile_row.pack(fill=tk.X, pady=(4, 4), after=self._scene_mode_lbl)
-            else:
-                self._scene_profile_row.pack_forget()
+                self._scene_profile_row.pack(fill=tk.X, pady=(2, 4))
+            if act == "click":
+                self._scene_coord_section.pack(fill=tk.X, pady=(2, 4))
+
 
 
     def _scene_update_preview(self) -> None:
@@ -1644,24 +1676,6 @@ class MainWindow:
         if path:
             self._scene_var_imgpath.set(path)
 
-    def _scene_capture(self) -> None:
-        def on_done(path, _lx, _ly):
-            if path:
-                self._scene_var_imgpath.set(path)
-
-        confine = None
-        if self._tab3_win.get("title"):
-            hwnd = self._resolve_bound_window(self._tab3_win)
-            if hwnd:
-                from services.window_manager import get_window_rect
-                r = get_window_rect(hwnd)
-                if r:
-                    confine = r  # (x, y, w, h)
-
-        _RegionSelector(self._root,
-                        save_dir=os.path.join(_app_dir(), "images", "scene"),
-                        on_done=on_done,
-                        confine_rect=confine)
 
     def _scene_record_click(self) -> None:
         """Show overlay, wait for one left-click on screen, capture template around it."""
