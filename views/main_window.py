@@ -2656,25 +2656,11 @@ class MainWindow:
         self._btn_execute.pack(fill=tk.X, padx=PX, pady=(0, 6))
         _Tip(self._btn_execute, "按 Space 鍵也可立即停止")
 
-        # Compact live-status strip (3 columns in one row)
+        # Compact live-status variables (used by the floating mini-window during execution)
         self._var_st_round = tk.StringVar(value="—")
         self._var_st_step  = tk.StringVar(value="—")
         self._var_st_click = tk.StringVar(value="—")
 
-        stat = tk.Frame(parent, bg=_C["card"],
-                        highlightthickness=1, highlightbackground=_C["border"])
-        stat.pack(fill=tk.X, padx=PX, pady=(6, 6))
-        for icon, lbl, var in (
-            ("↺", "輪", self._var_st_round),
-            ("▶", "步", self._var_st_step),
-            ("◎", "點", self._var_st_click),
-        ):
-            col = tk.Frame(stat, bg=_C["card"])
-            col.pack(side=tk.LEFT, expand=True, fill=tk.X, pady=4, padx=2)
-            tk.Label(col, text=f"{icon} {lbl}", bg=_C["card"],
-                     fg=_C["text_muted"], font=("Segoe UI", 8)).pack()
-            tk.Label(col, textvariable=var, bg=_C["card"],
-                     fg=_C["accent"], font=("Segoe UI", 9, "bold")).pack()
 
     # ── status bar ────────────────────────────────────────────────────────────
 
