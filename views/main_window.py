@@ -881,6 +881,12 @@ class MainWindow:
         right.grid(row=0, column=1, sticky="nsew")
         self._build_orb_preview(right)
 
+        # 註冊即時變更追蹤，在面板元素皆建立完後綁定，確保變更數值時即時存檔且高亮預設按鈕
+        for var in (self._orb_var_rows, self._orb_var_cols, self._orb_var_speed,
+                    self._orb_var_beam, self._orb_var_steps):
+            var.trace_add("write", self._orb_on_var_change)
+        self._orb_update_preset_button_highlight()
+
     def _build_orb_settings(self, parent: ttk.LabelFrame) -> None:
         PX = 10
 
@@ -899,13 +905,16 @@ class MainWindow:
         grid = tk.Frame(parent, bg=_C["bg"])
         grid.pack(fill=tk.X, padx=PX, pady=2)
 
-        def _cell(row, col, label, default):
-            tk.Label(grid, text=label, bg=_C["bg"], fg=_C["text_muted"],
-                     font=("Segoe UI", 9), anchor=tk.W).grid(
-                row=row, column=col * 2, padx=(0, 3), pady=3, sticky=tk.W)
+        def _cell(row, col, label, default, tip=None):
+            lbl = tk.Label(grid, text=label, bg=_C["bg"], fg=_C["text_muted"],
+                           font=("Segoe UI", 9), anchor=tk.W)
+            lbl.grid(row=row, column=col * 2, padx=(0, 3), pady=3, sticky=tk.W)
             v = tk.StringVar(value=str(default))
             e = self._numeric_entry(grid, v, width=5)
             e.grid(row=row, column=col * 2 + 1, padx=(0, 12), pady=3, sticky=tk.W)
+            if tip:
+                _Tip(lbl, tip)
+                _Tip(e, tip)
             return v
 
         cfg = self._orb_config
@@ -915,13 +924,13 @@ class MainWindow:
         beam_val = cfg.beam_width if cfg else 50
         steps_val = cfg.max_steps if cfg else 50
 
-        self._orb_var_rows  = _cell(0, 0, "列數",     rows_val)
-        self._orb_var_cols  = _cell(0, 1, "欄數",     cols_val)
-        self._orb_var_speed = _cell(1, 0, "拖曳速度", speed_val)
+        self._orb_var_rows  = _cell(0, 0, "列數",     rows_val, "珠盤的行數/高度，例如：神魔之塔常規為 5 列")
+        self._orb_var_cols  = _cell(0, 1, "欄數",     cols_val, "珠盤的列數/寬度，例如：神魔之塔常規為 6 欄")
+        self._orb_var_speed = _cell(1, 0, "拖曳速度", speed_val, "模擬拖曳時每移動一格所花費的毫秒數。數值越小越快，建議值：15 ~ 35")
         tk.Label(grid, text="ms/格", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).grid(row=1, column=2, padx=(0, 0), pady=3, sticky=tk.W)
-        self._orb_var_beam  = _cell(2, 0, "求解精度", beam_val)
-        self._orb_var_steps = _cell(2, 1, "最大步數", steps_val)
+        self._orb_var_beam  = _cell(2, 0, "求解精度", beam_val, "Beam Search 的搜尋寬度。數值越高路線越優但計算越慢")
+        self._orb_var_steps = _cell(2, 1, "最大步數", steps_val, "求解路徑的最大步數限制。步數多可排出更好的消珠路線")
 
 
         # Preset buttons: 標準 / 高精度 — store refs so _orb_set_preset can toggle styles
@@ -1049,6 +1058,51 @@ class MainWindow:
         self._lbl_orb_status.config(
             text=f"{'標準' if is_std else '高精度'} 模式：精度 {beam}，步數 {steps}",
             fg=_C["text_muted"])
+
+    def _orb_update_preset_button_highlight(self) -> None:
+        """依據當前輸入框的值，更新預設按鈕的高亮樣式（標準/高精度/自訂）"""
+        try:
+            b = int(self._orb_var_beam.get() or 50)
+            st = int(self._orb_var_steps.get() or 50)
+            is_std = (b == 30 and st == 40)
+            is_hi = (b == 50 and st == 50)
+            if hasattr(self, "_btn_preset_std") and self._btn_preset_std:
+                self._btn_preset_std.config(style="Accent.TButton" if is_std else "Ghost.TButton")
+            if hasattr(self, "_btn_preset_hi") and self._btn_preset_hi:
+                self._btn_preset_hi.config(style="Accent.TButton" if is_hi else "Ghost.TButton")
+        except ValueError:
+            pass
+
+    def _orb_on_var_change(self, *args) -> None:
+        """當 UI 輸入框的數值發生改變時，即時將設定更新至 config，並持久化至資料庫"""
+        if not self._orb_config:
+            return
+        try:
+            r = int(self._orb_var_rows.get() or 5)
+            c = int(self._orb_var_cols.get() or 6)
+            s = int(self._orb_var_speed.get() or 25)
+            b = int(self._orb_var_beam.get() or 50)
+            st = int(self._orb_var_steps.get() or 50)
+            
+            self._orb_config.rows = r
+            self._orb_config.cols = c
+            self._orb_config.drag_speed_ms = s
+            self._orb_config.beam_width = b
+            self._orb_config.max_steps = st
+            
+            self._db.save_orb_config(self._orb_config)
+            
+            self._orb_update_preset_button_highlight()
+            
+            if hasattr(self, "_lbl_orb_status") and self._lbl_orb_status:
+                cfg = self._orb_config
+                self._lbl_orb_status.config(
+                    text=(f"已校準：{cfg.rows}×{cfg.cols}，"
+                          f"格子 {cfg.cell_w}×{cfg.cell_h}px  "
+                          f"原點({cfg.board_x},{cfg.board_y})"),
+                    fg=_C["success"])
+        except ValueError:
+            pass
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Tab 3 — 場景腳本
