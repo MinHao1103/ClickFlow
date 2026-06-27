@@ -3176,11 +3176,6 @@ class _StepEditorDialog(tk.Toplevel):
                  font=("Segoe UI", 9), width=2).pack(side=tk.LEFT)
         self._ent_y = self._numeric_entry(row, self._var_y, width=7)
         self._ent_y.pack(side=tk.LEFT, padx=(3, 10))
-        
-        btn_pick = ttk.Button(row, text="📍 擷取", style="Ghost.TButton",
-                               command=self._capture_position)
-        btn_pick.pack(side=tk.LEFT)
-        _Tip(btn_pick, "點擊後在螢幕上點選目標位置，或按 S 鍵快速擷取")
 
         # ── Count Frame ──
         self._frm_count = tk.Frame(main_frm, bg=_C["bg"])
