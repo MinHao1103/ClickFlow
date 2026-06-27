@@ -1987,7 +1987,7 @@ class MainWindow:
         self._scene_runner = SceneRunner()
         self._scene_runner.start(
             rules=list(self._scene_rules),
-            get_orb_config=lambda: self._orb_config,
+            get_orb_config=lambda: self._transform_orb_config(self._orb_config, self._tab3_win),
             on_status=lambda msg: None if msg == "掃描中…" else self._root.after(
                 0, lambda m=msg: self._scene_on_status(m)),
             on_fired=lambda rule: self._root.after(
