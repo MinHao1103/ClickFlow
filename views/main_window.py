@@ -3018,37 +3018,44 @@ class _CoordinatePicker:
         self._win.overrideredirect(True)
         self._win.wm_attributes("-topmost", True)
         self._win.wm_attributes("-alpha", 0.3)  # 半透明
-        
+
         lw = root.winfo_screenwidth()
         lh = root.winfo_screenheight()
         self._win.geometry(f"{lw}x{lh}+0+0")
-        
+
         canvas = tk.Canvas(self._win, width=lw, height=lh,
                            cursor="crosshair", highlightthickness=0, bg="black")
         canvas.pack(fill=tk.BOTH, expand=True)
-        
+
         tk.Label(self._win,
                  text=text,
                  bg="#0f172a", fg="#94a3b8",
                  font=("Segoe UI", 12, "bold")).place(x=lw // 2, y=24, anchor="n")
-        
+
         canvas.bind("<ButtonPress-1>", self._click)
         self._win.bind("<Escape>", lambda _: self._cancel())
         self._win.bind("<Key-s>", lambda _: self._click_at_current_mouse())
+
+        # 確保視窗渲染完成後才搶 grab，避免 overrideredirect 在 Windows 上點擊穿透
+        self._win.update()
         self._win.focus_force()
+        self._win.grab_set()
 
     def _click(self, e: tk.Event) -> None:
         x, y = e.x_root, e.y_root
+        self._win.grab_release()
         self._win.destroy()
         self._on_done(x, y)
 
     def _click_at_current_mouse(self) -> None:
         import pyautogui
         x, y = pyautogui.position()
+        self._win.grab_release()
         self._win.destroy()
         self._on_done(x, y)
 
     def _cancel(self) -> None:
+        self._win.grab_release()
         self._win.destroy()
         self._on_done(None, None)
 
