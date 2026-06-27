@@ -1897,7 +1897,7 @@ class MainWindow:
             ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
             ("選第一個盟友",           "user_select_ally.png",       "click",     0.75,  3.0, 0,   0),
             ("進入NEW關卡",            "user_stage_new.png",         "click",     0.75,  5.0, 256, 3),
-            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.75,  5.0, 56,  77),
+            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.75,  5.0, 0,  0),
             ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0),
             ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.70,  5.0, 0,   0),
             ("點摩靈按鈕",             "user_btn_maling.png",        "click",     0.70,  5.0, 0,   0),
@@ -1945,14 +1945,20 @@ class MainWindow:
         hwnd = self._resolve_bound_window(self._tab3_win)
         if not hwnd:
             return None, None, 1.0, 1.0
-        from services.window_manager import get_window_rect
-        rect = get_window_rect(hwnd)
+        from services.window_manager import get_client_rect
+        rect = get_client_rect(hwnd)
         if not rect:
             return None, None, 1.0, 1.0
-        ref_size = self._tab3_win.get("ref_size")
-        sx = rect[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
-        sy = rect[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
-        return hwnd, rect, sx, sy
+        cx, cy, cw, ch = rect
+        # Reference client size of original screenshots is 1268x707
+        ref_w, ref_h = 1268, 707
+        native_ratio = ref_w / ref_h
+        client_ratio = cw / ch if ch else native_ratio
+        if client_ratio > native_ratio:
+            scale = ch / ref_h
+        else:
+            scale = cw / ref_w
+        return hwnd, rect, scale, scale
 
     def _scene_start(self) -> None:
         active = [

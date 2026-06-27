@@ -37,3 +37,15 @@ def is_window_valid(hwnd: int) -> bool:
         ctypes.windll.user32.IsWindow(hwnd)
         and ctypes.windll.user32.IsWindowVisible(hwnd)
     )
+
+
+def get_client_rect(hwnd: int) -> tuple[int, int, int, int] | None:
+    """Return (x, y, w, h) of the window's client area in screen coordinates."""
+    rect = wintypes.RECT()
+    if not ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        return None
+    w = rect.right - rect.left
+    h = rect.bottom - rect.top
+    point = wintypes.POINT(0, 0)
+    ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(point))
+    return (point.x, point.y, w, h)
