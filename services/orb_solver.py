@@ -6,139 +6,159 @@ from services.orb_board import Board, EMPTY
 
 logger = logging.getLogger(__name__)
 
-# Per-solve score cache: board_state_key → combo_count.
+# Per-solve score cache: board_state_flat_tuple → combo_count.
 # Cleared at the start of each solve() call. Many beam paths converge to
 # identical board states; caching eliminates redundant score_board() calls.
 _score_cache: dict = {}
 
 
-def _drop(b: Board) -> None:
-    """Gravity: orbs fall down to fill empty cells."""
-    rows = len(b)
-    cols = len(b[0])
-    for c in range(cols):
-        filled = [b[r][c] for r in range(rows) if b[r][c] != EMPTY]
-        empties = rows - len(filled)
-        for r in range(rows):
-            b[r][c] = EMPTY if r < empties else filled[r - empties]
-
-
-def _score_board_uncached(board: Board) -> int:
-    rows = len(board)
-    cols = len(board[0])
+def _score_board_uncached(board: tuple, rows: int, cols: int) -> int:
+    # Convert flat board tuple to 2D list for match/elimination gravity calculation
+    b = [list(board[r*cols : (r+1)*cols]) for r in range(rows)]
     total = 0
-    b = [row[:] for row in board]
     while True:
-        matched: set[tuple[int, int]] = set()
+        matched_flat = [False] * (rows * cols)
+        any_match = False
+        
+        # Horizontal check
         for r in range(rows):
+            offset = r * cols
             c = 0
             while c < cols - 2:
-                if b[r][c] != EMPTY and b[r][c] == b[r][c+1] == b[r][c+2]:
+                val = b[r][c]
+                if val != EMPTY and val == b[r][c+1] == b[r][c+2]:
                     k = c
-                    while k < cols and b[r][k] == b[r][c]:
-                        matched.add((r, k)); k += 1
+                    while k < cols and b[r][k] == val:
+                        matched_flat[offset + k] = True
+                        k += 1
+                    any_match = True
                     c = k
                 else:
                     c += 1
+                    
+        # Vertical check
         for c in range(cols):
             r = 0
             while r < rows - 2:
-                if b[r][c] != EMPTY and b[r][c] == b[r+1][c] == b[r+2][c]:
+                val = b[r][c]
+                if val != EMPTY and val == b[r+1][c] == b[r+2][c]:
                     k = r
-                    while k < rows and b[k][c] == b[r][c]:
-                        matched.add((k, c)); k += 1
+                    while k < rows and b[k][c] == val:
+                        matched_flat[k * cols + c] = True
+                        k += 1
+                    any_match = True
                     r = k
                 else:
                     r += 1
-        if not matched:
+                    
+        if not any_match:
             break
-        # Count same-colour connected groups (BFS): each group = 1 combo.
-        # Two separate 3-orb groups score 2; one 6-orb chain scores 1.
-        seen: set[tuple[int, int]] = set()
-        for pos in matched:
-            if pos in seen:
-                continue
-            color = b[pos[0]][pos[1]]
-            seen.add(pos)
-            total += 1
-            stack = [pos]
-            while stack:
-                pr, pc = stack.pop()
-                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                    nb = (pr + dr, pc + dc)
-                    if nb in matched and nb not in seen and b[nb[0]][nb[1]] == color:
-                        seen.add(nb)
-                        stack.append(nb)
-        for r, c in matched:
-            b[r][c] = EMPTY
-        _drop(b)
+            
+        # BFS group counting using flat indices and flat seen array
+        seen_flat = [False] * (rows * cols)
+        for r in range(rows):
+            offset = r * cols
+            for c in range(cols):
+                idx = offset + c
+                if matched_flat[idx] and not seen_flat[idx]:
+                    color = b[r][c]
+                    seen_flat[idx] = True
+                    total += 1
+                    stack = [(r, c)]
+                    while stack:
+                        pr, pc = stack.pop()
+                        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                            nr, nc = pr + dr, pc + dc
+                            if 0 <= nr < rows and 0 <= nc < cols:
+                                n_idx = nr * cols + nc
+                                if matched_flat[n_idx] and not seen_flat[n_idx] and b[nr][nc] == color:
+                                    seen_flat[n_idx] = True
+                                    stack.append((nr, nc))
+                                    
+        # Perform elimination & drop
+        for c in range(cols):
+            filled = []
+            for r in range(rows):
+                idx = r * cols + c
+                if matched_flat[idx]:
+                    b[r][c] = EMPTY
+                if b[r][c] != EMPTY:
+                    filled.append(b[r][c])
+            empties = rows - len(filled)
+            for r in range(rows):
+                b[r][c] = EMPTY if r < empties else filled[r - empties]
+                
     return total
 
 
-def score_board(board: Board) -> int:
-    """Count combos; results are cached per solve() call by board state."""
-    key = tuple(tuple(row) for row in board)
-    if key not in _score_cache:
-        _score_cache[key] = _score_board_uncached(board)
-    return _score_cache[key]
+def score_board(board: tuple, rows: int, cols: int) -> int:
+    """Count combos; results are cached per solve() call by flat board state."""
+    if board not in _score_cache:
+        _score_cache[board] = _score_board_uncached(board, rows, cols)
+    return _score_cache[board]
 
 
-def _move(board: Board, fpos: tuple, tpos: tuple, held: str) -> Board:
-    """Move held orb from fpos to tpos. Returns new board copy."""
-    b = [row[:] for row in board]
-    fr, fc = fpos
-    tr, tc = tpos
-    b[fr][fc] = b[tr][tc]
-    b[tr][tc] = held
-    return b
+def _move_flat(board: tuple, fidx: int, tidx: int) -> tuple:
+    """Move held orb from fidx to tidx in the flat board representation."""
+    b = list(board)
+    b[fidx], b[tidx] = b[tidx], b[fidx]
+    return tuple(b)
 
 
 def _beam_search(
-    board: Board,
+    board: tuple,
     sr: int,
     sc: int,
+    rows: int,
+    cols: int,
     beam_width: int,
     max_steps: int,
     deadline: float,
-) -> tuple[int, list]:
-    """Beam search from starting cell (sr, sc).
-    Returns (best_score, best_path) found before deadline."""
-    rows = len(board)
-    cols = len(board[0])
-    held = board[sr][sc]
-    init = [row[:] for row in board]
-    # path stored as tuple for fast immutable concatenation
-    beams: list[tuple] = [(init, (sr, sc), held, ((sr, sc),))]
-
+) -> tuple[int, list[tuple[int, int]]]:
+    """Beam search starting from (sr, sc) using optimized flat board representations."""
+    sidx = sr * cols + sc
+    # beams elements: (flat_board_tuple, current_index, path_tuple)
+    beams = [(board, sidx, (sidx,))]
     best_score = 0
-    best_path: tuple = ((sr, sc),)
-
+    best_path = (sidx,)
+    
     for _ in range(max_steps):
         if time.time() >= deadline:
             break
         candidates = []
-        for brd, pos, h, path in beams:
-            pr, pc = pos
+        visited = set()
+        for brd, idx, path in beams:
+            pr, pc = idx // cols, idx % cols
             prev = path[-2] if len(path) >= 2 else None
+            
+            # Moves: Up, Down, Left, Right
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 nr, nc = pr + dr, pc + dc
-                if not (0 <= nr < rows and 0 <= nc < cols):
-                    continue
-                if prev and (nr, nc) == prev:
-                    continue
-                nb = _move(brd, pos, (nr, nc), h)
-                s = score_board(nb)
-                candidates.append((s, nb, (nr, nc), h, path + ((nr, nc),)))
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    nidx = nr * cols + nc
+                    if prev is not None and nidx == prev:
+                        continue
+                    nb = _move_flat(brd, idx, nidx)
+                    
+                    # Duplicate state pruning: board state + position
+                    state_key = (nb, nidx)
+                    if state_key in visited:
+                        continue
+                    visited.add(state_key)
+                    
+                    s = score_board(nb, rows, cols)
+                    candidates.append((s, nb, nidx, path + (nidx,)))
+                    
         if not candidates:
             break
         # heapq.nlargest is O(N log K) vs sort's O(N log N) — faster when N >> beam_width
         top = heapq.nlargest(beam_width, candidates, key=lambda x: x[0])
         if top[0][0] > best_score:
             best_score = top[0][0]
-            best_path = top[0][4]
-        beams = [(c[1], c[2], c[3], c[4]) for c in top]
-
-    return best_score, list(best_path)
+            best_path = top[0][3]
+        beams = [(c[1], c[2], c[3]) for c in top]
+        
+    return best_score, [(idx // cols, idx % cols) for idx in best_path]
 
 
 class OrbSolver:
@@ -146,7 +166,8 @@ class OrbSolver:
         self._cfg = config
 
     def solve(self, board: Board, time_limit: float = 12.0) -> tuple[list[tuple[int, int]], int]:
-        """Multi-pass beam search. Uses time_limit seconds, then returns best found.
+        """Multi-pass beam search using optimized flat tuple representations.
+        Uses time_limit seconds, then returns the best path found.
 
         Strategy:
           Pass 1 — base beam_width, all non-EMPTY starts: fast baseline survey.
@@ -163,6 +184,9 @@ class OrbSolver:
         max_steps = max(1, self._cfg.max_steps)
         deadline = time.time() + time_limit
 
+        # Convert 2D list board to a flat tuple for fast hash/move operations
+        board_flat = tuple(cell for row in board for cell in row)
+
         all_starts = [(r, c) for r in range(rows) for c in range(cols) if board[r][c] != EMPTY]
         best_score = -1
         best_path: list = []
@@ -172,7 +196,7 @@ class OrbSolver:
         for sr, sc in all_starts:
             if time.time() >= deadline:
                 break
-            s, path = _beam_search(board, sr, sc, base_bw, max_steps, deadline)
+            s, path = _beam_search(board_flat, sr, sc, rows, cols, base_bw, max_steps, deadline)
             start_scores.append((s, sr, sc))
             if s > best_score:
                 best_score = s
@@ -191,7 +215,7 @@ class OrbSolver:
             for _, sr, sc in start_scores[:top_n]:
                 if time.time() >= deadline:
                     break
-                s, path = _beam_search(board, sr, sc, wider, max_steps, deadline)
+                s, path = _beam_search(board_flat, sr, sc, rows, cols, wider, max_steps, deadline)
                 if s > best_score:
                     best_score = s
                     best_path = path
