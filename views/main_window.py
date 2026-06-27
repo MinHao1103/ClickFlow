@@ -1949,6 +1949,8 @@ class MainWindow:
             self._orb_loop_active = True
         # Always swap run→stop while executing (single or continuous)
         self._btn_orb_run.pack_forget()
+        stop_text = "■  停止連續" if self._orb_var_loop.get() else "■  停止執行"
+        self._btn_orb_stop.config(text=stop_text)
         self._btn_orb_stop.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=(0, 8))
         self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
 

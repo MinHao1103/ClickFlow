@@ -50,11 +50,14 @@ class OrbExecutor:
         on_done: Callable[[], None],
         on_error: Callable[[str], None],
     ) -> None:
+        orig_pause = pyautogui.PAUSE
         try:
             if not path:
                 on_done()
                 return
 
+            # 暫時將全域延遲設為極小值，使 drag_speed_ms 設定能精確反映在每格的移動時間上
+            pyautogui.PAUSE = 0.002
             speed = self._cfg.drag_speed_ms / 1000.0
             sx, sy = self._to_screen(*path[0])
 
@@ -78,3 +81,6 @@ class OrbExecutor:
                 pass
             logger.exception("OrbExecutor error")
             on_error(str(exc))
+        finally:
+            pyautogui.PAUSE = orig_pause
+
