@@ -4,8 +4,11 @@ AutomationScriptEngine.spec
 
 # User-captured images (not preset templates)
 dist/images/scene/img_*.png
+dist/images/scene/marked_*.png
 dist/images/orb/
 dist/images/*.png
+dist/settings.json
+
 
 # Runtime
 clicker.db
