@@ -908,13 +908,21 @@ class MainWindow:
             e.grid(row=row, column=col * 2 + 1, padx=(0, 12), pady=3, sticky=tk.W)
             return v
 
-        self._orb_var_rows  = _cell(0, 0, "列數",     5)
-        self._orb_var_cols  = _cell(0, 1, "欄數",     6)
-        self._orb_var_speed = _cell(1, 0, "拖曳速度", 25)
+        cfg = self._orb_config
+        rows_val = cfg.rows if cfg else 5
+        cols_val = cfg.cols if cfg else 6
+        speed_val = cfg.drag_speed_ms if cfg else 25
+        beam_val = cfg.beam_width if cfg else 50
+        steps_val = cfg.max_steps if cfg else 50
+
+        self._orb_var_rows  = _cell(0, 0, "列數",     rows_val)
+        self._orb_var_cols  = _cell(0, 1, "欄數",     cols_val)
+        self._orb_var_speed = _cell(1, 0, "拖曳速度", speed_val)
         tk.Label(grid, text="ms/格", bg=_C["bg"], fg=_C["text_muted"],
                  font=("Segoe UI", 8)).grid(row=1, column=2, padx=(0, 0), pady=3, sticky=tk.W)
-        self._orb_var_beam  = _cell(2, 0, "求解精度", 50)
-        self._orb_var_steps = _cell(2, 1, "最大步數", 50)
+        self._orb_var_beam  = _cell(2, 0, "求解精度", beam_val)
+        self._orb_var_steps = _cell(2, 1, "最大步數", steps_val)
+
 
         # Preset buttons: 標準 / 高精度 — store refs so _orb_set_preset can toggle styles
         preset_row = tk.Frame(parent, bg=_C["bg"])
@@ -1917,10 +1925,33 @@ class MainWindow:
                         save_dir=os.path.join(_app_dir(), "images", "orb"),
                         on_done=on_done)
 
+    def _sync_orb_config_from_ui(self) -> None:
+        """將 UI 輸入框中的值同步到 self._orb_config 中，並持久化至資料庫"""
+        if not self._orb_config:
+            return
+        try:
+            self._orb_config.rows = int(self._orb_var_rows.get() or 5)
+            self._orb_config.cols = int(self._orb_var_cols.get() or 6)
+            self._orb_config.drag_speed_ms = int(self._orb_var_speed.get() or 25)
+            self._orb_config.beam_width = int(self._orb_var_beam.get() or 50)
+            self._orb_config.max_steps = int(self._orb_var_steps.get() or 50)
+            self._db.save_orb_config(self._orb_config)
+            
+            if hasattr(self, "_lbl_orb_status") and self._lbl_orb_status:
+                cfg = self._orb_config
+                self._lbl_orb_status.config(
+                    text=(f"已校準：{cfg.rows}×{cfg.cols}，"
+                          f"格子 {cfg.cell_w}×{cfg.cell_h}px  "
+                          f"原點({cfg.board_x},{cfg.board_y})"),
+                    fg=_C["success"])
+        except Exception:
+            logger.exception("Failed to sync and save orb config from UI")
+
     def _orb_recognize_test(self) -> None:
         if not self._orb_config:
             messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
             return
+        self._sync_orb_config_from_ui()
         self._lbl_orb_status.config(text="截圖辨識中…", fg=_C["warning"])
         self._root.update_idletasks()
         try:
@@ -1942,6 +1973,7 @@ class MainWindow:
         if not self._orb_config:
             messagebox.showwarning("轉珠", "請先按「📷 框選盤面」校準")
             return
+        self._sync_orb_config_from_ui()
         if self._orb_executor and self._orb_executor.is_running:
             return
         # Activate continuous loop on first manual call if checkbox is on
