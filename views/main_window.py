@@ -620,6 +620,15 @@ class MainWindow:
             self._scene_rules = self._db.load_scene_rules(self._scene_profile)
             self._scene_refresh_profiles()
             self._scene_refresh_list()
+            # Initialize persistent calibration reference on first start if not present
+            if self._orb_config and self._load_app_setting("orb_calibration_ref") is None:
+                hwnd = self._resolve_bound_window(self._tab2_win)
+                if hwnd:
+                    from services.window_manager import get_window_rect
+                    rect = get_window_rect(hwnd)
+                    if rect:
+                        self._save_app_setting("orb_calibration_ref", (rect[0], rect[1]))
+                        self._save_app_setting("orb_calibration_ref_size", (rect[2], rect[3]))
         except Exception:
             pass
         self._mouse_tracker.start()
@@ -2037,6 +2046,8 @@ class MainWindow:
                         if rect:
                             self._tab2_win["ref"]      = (rect[0], rect[1])
                             self._tab2_win["ref_size"] = (rect[2], rect[3])
+                            self._save_app_setting("orb_calibration_ref", (rect[0], rect[1]))
+                            self._save_app_setting("orb_calibration_ref_size", (rect[2], rect[3]))
                 try:
                     self._db.save_orb_config(self._orb_config)
                 except Exception:
@@ -2726,8 +2737,9 @@ class MainWindow:
         rect = get_window_rect(hwnd)
         if rect is None:
             return config
-        ref_x, ref_y = binding["ref"]
-        ref_size = binding.get("ref_size")
+        # Load the true calibration-time reference window position & size from settings
+        ref_x, ref_y = self._load_app_setting("orb_calibration_ref") or binding.get("ref", (0, 0))
+        ref_size = self._load_app_setting("orb_calibration_ref_size") or binding.get("ref_size")
         sx = rect[2] / ref_size[0] if ref_size and ref_size[0] else 1.0
         sy = rect[3] / ref_size[1] if ref_size and ref_size[1] else 1.0
         dx = rect[0] - ref_x
