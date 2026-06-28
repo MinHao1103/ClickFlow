@@ -69,6 +69,7 @@ class OrbExecutor:
                     break
                 x, y = self._to_screen(*pos)
                 pyautogui.moveTo(x, y, duration=speed)
+                time.sleep(0.015)
 
             time.sleep(0.05)
             pyautogui.mouseUp()

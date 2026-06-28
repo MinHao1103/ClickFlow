@@ -10,7 +10,7 @@ class OrbConfig:
     cell_h:        int = 0
     rows:          int = 5
     cols:          int = 6
-    drag_speed_ms: int = 25
+    drag_speed_ms: int = 60
     beam_width:    int = 50
     max_steps:     int = 50
     db_id:         int = None
