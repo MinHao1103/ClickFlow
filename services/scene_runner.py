@@ -42,6 +42,26 @@ def _grab_screen(sct, region=None) -> "Optional[object]":
     except Exception:
         return None
 
+def _safe_click(x: int, y: int, button: str = "left", double: bool = False) -> None:
+    """Simulates a human click with mouse down and up delays to prevent Flash from dropping events."""
+    try:
+        pyautogui.moveTo(x, y)
+        time.sleep(0.05)
+        if double:
+            pyautogui.mouseDown(button=button)
+            time.sleep(0.05)
+            pyautogui.mouseUp(button=button)
+            time.sleep(0.08)
+            pyautogui.mouseDown(button=button)
+            time.sleep(0.05)
+            pyautogui.mouseUp(button=button)
+        else:
+            pyautogui.mouseDown(button=button)
+            time.sleep(0.08)
+            pyautogui.mouseUp(button=button)
+    except Exception:
+        pass
+
 from models.scene_rule import SceneRule
 from services.orb_board import OrbBoard, EMPTY      # top-level import (fix #4)
 
@@ -278,7 +298,7 @@ class SceneRunner:
                             time.sleep(0.15)
                         except Exception:
                             pass
-                    pyautogui.click(target_x, target_y)
+                    _safe_click(target_x, target_y)
                     on_status(f"點擊：{label} → ({target_x}, {target_y})")
                     logger.info("SceneRunner click rule=%r target=(%d,%d)", label, target_x, target_y)
                     fired = True
@@ -390,7 +410,7 @@ class SceneRunner:
                         focused = True
                     except Exception:
                         pass
-                pyautogui.click(target_x, target_y)
+                _safe_click(target_x, target_y)
                 cooldowns[self._rule_key_static(rule)] = time.time() + rule.cooldown
                 on_status(f"[彈窗{pass_num+1}] {label} → ({target_x}, {target_y})")
                 logger.info("flush pass=%d clicked %r at (%d,%d)",
@@ -486,9 +506,9 @@ class SceneRunner:
                 if self._stop_event.is_set():
                     break
                 if action == "double_click":
-                    pyautogui.doubleClick(step.x, step.y)
+                    _safe_click(step.x, step.y, button=button, double=True)
                 else:
-                    pyautogui.click(step.x, step.y, button=button)
+                    _safe_click(step.x, step.y, button=button)
                 if step.delay > 0:
                     self._interruptible_sleep(step.delay)
 
@@ -542,7 +562,7 @@ class SceneRunner:
                 raise RuntimeError(
                     f"在 {timeout} 秒內找不到圖片：{os.path.basename(path)}"
                 )
-            pyautogui.click(center.x, center.y)
+            _safe_click(center.x, center.y)
             self._interruptible_sleep(step.delay)
 
     def _interruptible_sleep(self, seconds: float) -> None:
