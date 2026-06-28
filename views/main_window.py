@@ -933,7 +933,7 @@ class MainWindow:
         cfg = self._orb_config
         rows_val = cfg.rows if cfg else 5
         cols_val = cfg.cols if cfg else 6
-        speed_val = cfg.drag_speed_ms if cfg else 25
+        speed_val = cfg.drag_speed_ms if cfg else 120
         beam_val = cfg.beam_width if cfg else 50
         steps_val = cfg.max_steps if cfg else 50
 
