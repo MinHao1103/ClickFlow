@@ -606,42 +606,20 @@ class MainWindow:
         self._refresh_list()          # show empty-state immediately
         self._reload_profile_list()
         try:
+            # Clean up legacy profiles and ensure single unified profile exists
+            legacy = ["摩靈傳說", "固定關卡刷圖", "摩靈傳說_NEW關卡_推進腳本", "TestProfileForJumps"]
+            profiles = self._db.list_scene_profile_names()
+            _CP = "摩靈傳說_關卡腳本"
+            if _CP not in profiles:
+                self._scene_load_combined_preset(_CP)
+            if self._scene_profile in legacy or self._scene_profile not in self._db.list_scene_profile_names():
+                self._scene_profile = _CP
+            for leg in legacy:
+                if leg in self._db.list_scene_profile_names():
+                    self._db.delete_scene_profile(leg)
             self._scene_rules = self._db.load_scene_rules(self._scene_profile)
-            if not self._scene_rules:
-                # First run — populate default profile with 摩靈 preset
-                self._scene_load_tos_preset("摩靈傳說")
-            # Ensure the fixed-dungeon profile exists with placeholder rules
-            _FP = "固定關卡刷圖"
-            profiles = self._db.list_scene_profile_names()
-            # Migrate legacy profile name
-            if "按鈕點擊" in profiles and _FP not in profiles:
-                self._db.rename_scene_profile("按鈕點擊", _FP)
-                profiles = self._db.list_scene_profile_names()
-            fixed_rules = self._db.load_scene_rules(_FP) if _FP in profiles else []
-            needs_reload = (
-                not fixed_rules
-                or not any(r.name.startswith("📌 進入指定") for r in fixed_rules)
-            )
-            if needs_reload:
-                saved = self._scene_profile
-                saved_rules = list(self._scene_rules)
-                self._scene_load_click_preset(_FP)
-                self._scene_profile = saved
-                self._scene_rules = saved_rules
-                self._scene_refresh_profiles()
-                self._scene_refresh_list()
-
-            # Ensure custom screenshot-based preset exists
-            _NP = "摩靈傳說_NEW關卡_推進腳本"
-            profiles = self._db.list_scene_profile_names()
-            if _NP not in profiles:
-                saved = self._scene_profile
-                saved_rules = list(self._scene_rules)
-                self._scene_load_custom_tos_preset(_NP)
-                self._scene_profile = saved
-                self._scene_rules = saved_rules
-                self._scene_refresh_profiles()
-                self._scene_refresh_list()
+            self._scene_refresh_profiles()
+            self._scene_refresh_list()
         except Exception:
             pass
         self._mouse_tracker.start()
@@ -1855,52 +1833,23 @@ class MainWindow:
         ("點摩靈按鈕",    "scene_btn_maling.png",      "click", 0.80,  5.0,  0,   0),
     ]
 
-    def _scene_load_tos_preset(self, profile_name: str = "摩靈傳說") -> None:
-        """Load 摩靈轉珠 preset (orb_solve + navigation) into profile_name."""
+    def _scene_load_combined_preset(self, profile_name: str = "摩靈傳說_關卡腳本") -> None:
+        """Load 摩靈傳說 unified preset including both dynamic progression and fixed farming rules."""
         presets = [
-            ("珠盤就緒", "scene_battle_banner.png", "orb_solve", 0.75, 15.0, 0, 0),
-            *self._CLICK_PRESETS,
-        ]
-        self._scene_apply_preset(presets, profile_name)
-
-    def _scene_load_click_preset(self, profile_name: str = "固定關卡刷圖") -> None:
-        """Load 固定關卡刷圖 preset — orb_solve + navigation, custom stage placeholders."""
-        presets = [
-            # ── Orb solve ─────────────────────────────────────────────────────
-            ("珠盤就緒",                "scene_battle_banner.png",    "orb_solve", 0.75, 15.0, 0,   0),
-            # ── Post-battle popups ────────────────────────────────────────────
-            ("斷線重連",               "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0),
-            ("知道了",                 "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0),
-            ("知道了(1h提示)",          "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0),
-            ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
-            ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
-            # ── Stage entry ───────────────────────────────────────────────────
-            ("選第一個盟友",           "scene_select_ally.png",      "click",     0.85,  3.0, 0,   0),
-            # ← 用 🔴 錄製 截圖後啟用，conf/cooldown 視情況調整
-            ("📌 進入指定關卡（請截圖設定）", "",                     "click",     0.85,  5.0, 0,   0, False),
-            ("📌 點擊指定地城（請截圖設定）", "",                     "click",     0.82,  5.0, 0,   0, False),
-            # ── Hub navigation (lowest priority) ──────────────────────────────
-            ("翻下一頁",               "scene_btn_nextpage.png",     "click",     0.82, 10.0, 0,   0),
-            ("點冒險地圖",             "scene_btn_adventure.png",    "click",     0.80,  5.0, 0,   0),
-            ("點摩靈按鈕",             "scene_btn_maling.png",       "click",     0.80,  5.0, 0,   0),
-        ]
-        self._scene_apply_preset(presets, profile_name)
-
-    def _scene_load_custom_tos_preset(self, profile_name: str = "摩靈傳說_NEW關卡_推進腳本") -> None:
-        """Load 摩靈傳說_NEW關卡_推進腳本 preset using user-cropped templates."""
-        presets = [
-            ("珠盤就緒",               "user_battle_banner.png",     "orb_solve", 0.70, 15.0, 0,   0),
-            ("斷線重連",               "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0),
-            ("知道了",                 "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0),
-            ("知道了(1h提示)",          "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0),
-            ("確定(升級)",             "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0),
-            ("確定(獎勵)",             "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0),
-            ("選第一個盟友",           "user_select_ally.png",       "click",     0.75,  3.0, 0,   0),
-            ("進入NEW關卡",            "user_stage_new.png",         "click",     0.70,  5.0, 132, 0),
-            ("點擊NEW地城",            "user_new_badge.png",         "click",     0.75,  5.0, 0,  0),
-            ("翻下一頁",               "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0),
-            ("點冒險地圖",             "user_btn_adventure.png",     "click",     0.70,  5.0, 0,   0),
-            ("點摩靈按鈕",             "user_btn_maling.png",        "click",     0.70,  5.0, 0,   0),
+            ("珠盤就緒",                   "user_battle_banner.png",     "orb_solve", 0.70, 15.0, 0,   0, True),
+            ("斷線重連",                   "scene_btn_confirm.png",      "click",     0.85,  8.0, 0,   0, True),
+            ("知道了",                     "scene_btn_zhidaole.png",     "click",     0.85,  2.0, 0,   0, True),
+            ("知道了(1h提示)",              "scene_btn_zhidaole_1h.png",  "click",     0.82,  2.0, 0,   0, True),
+            ("確定(升級)",                 "scene_btn_ok.png",           "click",     0.85,  2.0, 0,   0, True),
+            ("確定(獎勵)",                 "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0, True),
+            ("選第一個盟友",               "user_select_ally.png",       "click",     0.75,  3.0, 0,   0, True),
+            ("📌 進入指定關卡（請錄製設定）", "",                           "click",     0.70,  5.0, 0,   0, False),
+            ("進入NEW關卡",                "user_stage_new.png",         "click",     0.70,  5.0, 132, 0, True),
+            ("📌 點擊指定地城（請錄製設定）", "",                           "click",     0.75,  5.0, 0,   0, False),
+            ("點擊NEW地城",                "user_new_badge.png",         "click",     0.75,  5.0, 0,   0, True),
+            ("翻下一頁",                   "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0, True),
+            ("點冒險地圖",                 "user_btn_adventure.png",     "click",     0.70,  5.0, 0,   0, True),
+            ("點摩靈按鈕",                 "user_btn_maling.png",        "click",     0.70,  5.0, 0,   0, True),
         ]
         self._scene_apply_preset(presets, profile_name)
 
