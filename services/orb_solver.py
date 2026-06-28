@@ -201,6 +201,8 @@ class OrbSolver:
             if s > best_score:
                 best_score = s
                 best_path = path
+                if best_score >= 8:
+                    break
 
         logger.info("Solver pass1: best=%d in %.2fs", best_score, time_limit - (deadline - time.time()))
 
@@ -209,11 +211,11 @@ class OrbSolver:
 
         # ── Pass 2-4: wider beams on progressively narrower start sets ────
         for multiplier, top_n in ((6, len(start_scores)), (20, 10), (40, 5)):
-            if time.time() >= deadline:
+            if time.time() >= deadline or best_score >= 8:
                 break
             wider = base_bw * multiplier
             for _, sr, sc in start_scores[:top_n]:
-                if time.time() >= deadline:
+                if time.time() >= deadline or best_score >= 8:
                     break
                 s, path = _beam_search(board_flat, sr, sc, rows, cols, wider, max_steps, deadline)
                 if s > best_score:

@@ -2144,7 +2144,7 @@ class MainWindow:
                 self._root.after(0, lambda: self._lbl_orb_status.config(
                     text="求解中…", fg=_C["warning"]))
 
-                path, predicted = OrbSolver(config).solve(board, time_limit=12.0)
+                path, predicted = OrbSolver(config).solve(board, time_limit=2.0)
 
                 if not path:
                     self._root.after(0, lambda: self._lbl_orb_status.config(
