@@ -1219,8 +1219,12 @@ class MainWindow:
                   font=("Segoe UI", 8), width=20).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(row1, text="📂 瀏覽", style="Ghost.TButton",
                    command=self._scene_browse).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="📷 框選", style="Ghost.TButton",
+                   command=self._scene_capture_region).pack(side=tk.LEFT, padx=(0, 2))
         ttk.Button(row1, text="🔴 點擊錄製", style="Record.TButton",
-                   command=self._scene_record_click).pack(side=tk.LEFT)
+                   command=self._scene_record_click).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Button(row1, text="🔍 測試比對", style="Ghost.TButton",
+                   command=self._scene_test_match).pack(side=tk.LEFT)
 
         # Image preview
         prev_frame = tk.Frame(self._scene_image_section, bg=_C["card"], height=72)
@@ -1525,6 +1529,21 @@ class MainWindow:
             self._scene_preview_lbl.config(image="", text="（無圖片）")
             self._scene_preview_photo = None
             return
+        
+        if not os.path.exists(path):
+            import sys
+            if hasattr(sys, "_MEIPASS"):
+                base_dir = sys._MEIPASS
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            fname = os.path.basename(path)
+            candidate1 = os.path.join(base_dir, "images", "scene", fname)
+            candidate2 = os.path.join(base_dir, "dist", "images", "scene", fname)
+            if os.path.exists(candidate1):
+                path = candidate1
+            elif os.path.exists(candidate2):
+                path = candidate2
+
         try:
             from PIL import Image, ImageTk
             img = Image.open(path)
@@ -1713,7 +1732,7 @@ class MainWindow:
                 if cancelled.is_set():
                     return False
                 if pressed and button == _mouse.Button.left:
-                    captured[0] = (int(x), int(y))
+                    captured[0] = pyautogui.position()
                     return False
 
             with _mouse.Listener(on_click=on_click) as listener:
@@ -1748,6 +1767,109 @@ class MainWindow:
             self._scene_var_name.set(f"規則_{ts[-6:]}")
         self._scene_update_preview()
         self._scene_update_mode_hint()
+
+    def _scene_capture_region(self) -> None:
+        """Open Region Selector to crop a precise region for the scene rule."""
+        import datetime
+        
+        hwnd = self._resolve_bound_window(self._tab3_win)
+        from services.window_manager import get_window_rect
+        rect = get_window_rect(hwnd) if hwnd else None
+        
+        confine_rect = None
+        if rect:
+            import ctypes
+            try:
+                hdc = ctypes.windll.user32.GetDC(0)
+                dpi_x = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88) # LOGPIXELSX
+                ctypes.windll.user32.ReleaseDC(0, hdc)
+                scale = dpi_x / 96.0
+            except Exception:
+                scale = 1.0
+            cx = int(rect[0] / scale)
+            cy = int(rect[1] / scale)
+            cw = int(rect[2] / scale)
+            ch = int(rect[3] / scale)
+            confine_rect = (cx, cy, cw, ch)
+
+        def on_done(path, *_):
+            if not path:
+                return
+            self._scene_var_imgpath.set(path)
+            self._scene_update_preview()
+            self._scene_update_mode_hint()
+
+        _RegionSelector(self._root,
+                        save_dir=os.path.join(_app_dir(), "images", "scene"),
+                        on_done=on_done,
+                        confine_rect=confine_rect)
+
+    def _scene_test_match(self) -> None:
+        """Test matching the current template on the active bound window."""
+        if self._scene_sel is None:
+            messagebox.showwarning("測試比對", "請先選擇一項規則進行測試")
+            return
+            
+        r = self._scene_rules[self._scene_sel]
+        img_path = self._scene_var_imgpath.get().strip()
+        if not img_path or not os.path.exists(img_path):
+            messagebox.showwarning("測試比對", "該規則尚未設定圖片或圖檔不存在")
+            return
+            
+        hwnd = self._resolve_bound_window(self._tab3_win)
+        if not hwnd:
+            messagebox.showwarning("測試比對", "找不到綁定的遊戲視窗，請先綁定視窗")
+            return
+            
+        from services.window_manager import get_client_rect
+        rect = get_client_rect(hwnd)
+        if not rect:
+            messagebox.showwarning("測試比對", "無法取得視窗大小，請確保視窗未被最小化")
+            return
+            
+        import mss
+        import cv2
+        import numpy as np
+        from PIL import Image
+        
+        try:
+            cx, cy, cw, ch = rect
+            with mss.mss() as sct:
+                monitor = {"left": cx, "top": cy, "width": cw, "height": ch}
+                shot = sct.grab(monitor)
+                screen = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                screen_cv = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
+                
+            template = cv2.imread(img_path)
+            if template is None:
+                messagebox.showerror("測試比對", "無法讀取圖檔")
+                return
+                
+            ref_w, ref_h = 1268, 707
+            sx = cw / ref_w
+            sy = ch / ref_h
+            
+            tw = max(1, int(round(template.shape[1] * sx)))
+            th = max(1, int(round(template.shape[0] * sy)))
+            template_resized = cv2.resize(template, (tw, th), interpolation=cv2.INTER_AREA)
+            
+            res = cv2.matchTemplate(screen_cv, template_resized, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+            
+            tx = max_loc[0] + tw // 2
+            ty = max_loc[1] + th // 2
+            
+            abs_x = cx + tx + int(round(r.click_dx * sx))
+            abs_y = cy + ty + int(round(r.click_dy * sy))
+            
+            msg = (f"比對結果：\n"
+                   f"• 最大相似度：{max_val:.4f} (門檻值：{r.confidence})\n"
+                   f"• 是否匹配：{'✅ 成功匹配' if max_val >= r.confidence else '❌ 信心度不足'}\n"
+                   f"• 預估點擊位置 (物理座標)：({abs_x}, {abs_y})\n"
+                   f"• 視窗比例：sx={sx:.3f}, sy={sy:.3f}")
+            messagebox.showinfo("測試比對", msg)
+        except Exception as e:
+            messagebox.showerror("測試比對", f"測試過程出錯：{e}")
 
     def _scene_save(self) -> None:
         try:
