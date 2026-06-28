@@ -1853,7 +1853,7 @@ class MainWindow:
             ("確定(獎勵)",                 "scene_btn_ok2.png",          "click",     0.82,  2.0, 0,   0, True),
             ("選第一個盟友",               "user_select_ally.png",       "click",     0.75,  3.0, 0,   0, True),
             ("📌 進入指定關卡（請錄製設定）", "",                           "click",     0.70,  5.0, 0,   0, False),
-            ("進入NEW關卡",                "user_stage_new.png",         "click",     0.70,  5.0, 132, 0, True),
+            ("進入NEW關卡",                "user_stage_new_badge_only.png", "click",     0.70,  5.0, 284, 0, True),
             ("📌 點擊指定地城（請錄製設定）", "",                           "click",     0.75,  5.0, 0,   0, False),
             ("點擊NEW地城",                "user_new_badge.png",         "click",     0.75,  5.0, 0,   0, True),
             ("翻下一頁",                   "user_btn_nextpage.png",      "click",     0.75, 10.0, 0,   0, True),
