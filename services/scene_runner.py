@@ -15,8 +15,22 @@ except ImportError:
     _HAS_MSS = False
 
 
-def _grab_screen(sct) -> "Optional[object]":
-    """Full-screen screenshot → PIL Image.  Uses mss when available (3-5× faster)."""
+def _grab_screen(sct, region=None) -> "Optional[object]":
+    """Screenshot of screen (or region if specified) -> PIL Image."""
+    if region:
+        # region is (x, y, w, h)
+        if _HAS_MSS and sct is not None:
+            try:
+                monitor = {"left": region[0], "top": region[1], "width": region[2], "height": region[3]}
+                shot = sct.grab(monitor)
+                return _PIL_Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            except Exception:
+                pass
+        try:
+            return pyautogui.screenshot(region=region)
+        except Exception:
+            return None
+
     if _HAS_MSS and sct is not None:
         try:
             shot = sct.grab(sct.monitors[1])
@@ -133,7 +147,7 @@ class SceneRunner:
                 fired = False
 
                 # One screenshot shared across all click-rule checks this cycle
-                cycle_shot = _grab_screen(sct)
+                cycle_shot = _grab_screen(sct, region=region)
 
                 for rule, img_path, label in active:
                     key = self._rule_key_static(rule)
@@ -338,7 +352,10 @@ class SceneRunner:
             return True, rule.click_x, rule.click_y
 
         cx, cy = pyautogui.center(loc)
-        return True, cx + int(round(rule.click_dx * sx)), cy + int(round(rule.click_dy * sy))
+        if haystack is not None and region is not None:
+            return True, region[0] + cx + int(round(rule.click_dx * sx)), region[1] + cy + int(round(rule.click_dy * sy))
+        else:
+            return True, cx + int(round(rule.click_dx * sx)), cy + int(round(rule.click_dy * sy))
 
     # ── popup flush (pre/post orb_solve) ─────────────────────────────────────
 
@@ -355,7 +372,7 @@ class SceneRunner:
             if self._stop_event.is_set():
                 break
             # Fresh screenshot per pass (screen changed after each click)
-            pass_shot = _grab_screen(sct)
+            pass_shot = _grab_screen(sct, region=region)
             clicked = False
             for rule, img_path, label in active:
                 if not rule.enabled or rule.action != "click":
