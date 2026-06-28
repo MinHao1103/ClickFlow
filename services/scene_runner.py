@@ -366,6 +366,70 @@ class SceneRunner:
             return False, 0, 0
 
         if loc is None:
+            if rule.name == "點擊NEW地城" and haystack is not None:
+                try:
+                    import cv2
+                    import numpy as np
+                    
+                    haystack_cv = cv2.cvtColor(np.array(haystack), cv2.COLOR_RGB2BGR)
+                    
+                    import sys
+                    if hasattr(sys, "_MEIPASS"):
+                        base_dir = sys._MEIPASS
+                    else:
+                        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                        
+                    label_path = os.path.join(base_dir, "images", "scene", "user_completion_label_clean.png")
+                    if not os.path.exists(label_path):
+                        label_path = os.path.join(base_dir, "dist", "images", "scene", "user_completion_label_clean.png")
+                        
+                    done_path = os.path.join(base_dir, "images", "scene", "user_completion_5_5_clean.png")
+                    if not os.path.exists(done_path):
+                        done_path = os.path.join(base_dir, "dist", "images", "scene", "user_completion_5_5_clean.png")
+                        
+                    label_template = cv2.imread(label_path)
+                    done_template = cv2.imread(done_path)
+                    
+                    if label_template is not None and done_template is not None:
+                        lw = max(1, int(round(label_template.shape[1] * sx)))
+                        lh = max(1, int(round(label_template.shape[0] * sy)))
+                        label_template_resized = cv2.resize(label_template, (lw, lh), interpolation=cv2.INTER_AREA)
+                        
+                        dw = max(1, int(round(done_template.shape[1] * sx)))
+                        dh = max(1, int(round(done_template.shape[0] * sy)))
+                        done_template_resized = cv2.resize(done_template, (dw, dh), interpolation=cv2.INTER_AREA)
+                        
+                        res = cv2.matchTemplate(haystack_cv, label_template_resized, cv2.TM_CCOEFF_NORMED)
+                        threshold = 0.70
+                        locs = np.where(res >= threshold)
+                        
+                        points = []
+                        for pt in zip(*locs[::-1]):
+                            if not any(abs(pt[0] - p[0]) < 20 and abs(pt[1] - p[1]) < 20 for p in points):
+                                points.append(pt)
+                                
+                        points.sort(key=lambda p: (p[1], p[0]))
+                        
+                        for lx, ly in points:
+                            cx_start = lx + lw
+                            cy_start = ly
+                            
+                            if cx_start + dw <= haystack_cv.shape[1] and cy_start + dh <= haystack_cv.shape[0]:
+                                crop_status = haystack_cv[cy_start:cy_start+dh, cx_start:cx_start+dw]
+                                res_done = cv2.matchTemplate(crop_status, done_template_resized, cv2.TM_CCOEFF_NORMED)
+                                _, max_val, _, _ = cv2.minMaxLoc(res_done)
+                                
+                                if max_val < 0.75:
+                                    target_x_rel = lx + lw // 2
+                                    target_y_rel = ly - int(round(120 * sy))
+                                    logger.info("Detected unfinished dungeon completion rate at (%d, %d) with 5/5 match confidence %.3f", lx, ly, max_val)
+                                    
+                                    if region is not None:
+                                        return True, region[0] + target_x_rel, region[1] + target_y_rel
+                                    else:
+                                        return True, target_x_rel, target_y_rel
+                except Exception as e:
+                    logger.error("Error detecting unfinished dungeons: %s", e)
             return False, 0, 0
 
         if has_abs:
