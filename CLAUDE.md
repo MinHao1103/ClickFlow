@@ -19,7 +19,9 @@ python main.py
 pyinstaller ClickFlow.spec   # preferred — spec has complete hiddenimports list
 ```
 
-After every code change: rebuild `dist/ClickFlow.exe` with PyInstaller and push.
+After every code change: rebuild `dist/ClickFlow.exe` with PyInstaller, then **wait for the user to confirm the feature actually works before committing/pushing** — do not commit or push proactively on your own. (This was previously written as "rebuild and push" unconditionally, which led to unwanted auto-commits; the user had to explicitly say "不要自動commit and push 等我確認完功能我就會跟你說" to stop it. Confirm first, every time.)
+
+`dist/ClickFlow.exe` is a tracked build artifact meant to be pushed with the repo (not gitignored) — the user has asked for it to be committed after being confirmed working, so don't silently exclude it.
 
 Logs are written to `logs/app.log` (created automatically).  
 Database is `clicker.db` (created automatically on first run).
@@ -109,6 +111,8 @@ Tab 1 supports binding a profile's playback to a named OS window so that step co
 - `_offset_step(step, dx, dy)` returns a shallow-copied step with coordinates shifted; only coord-bearing action types (`click`, `double_click`, `right_click`, `move`, `drag`) are adjusted.
 - `_resolve_bound_window()` refreshes a stale `hwnd` by re-scanning window titles, so playback survives the target app being restarted.
 - No binding (`不綁定`) leaves `binding["hwnd"]` as `None` and offset as `(0, 0)`, a no-op.
+
+**Known recurring bug class — re-verify after the bound window moves/resizes, not just at bind time.** This has broken orb-solving more than once after the user repositioned or resized the Flash Player window post-binding (coordinates/board calibration going stale). Any change touching window-binding, DPI scaling, or `OrbConfig` screen coordinates should be tested by moving/resizing the target window mid-session, not just verified once right after binding/calibrating.
 
 ## Overlay Windows
 
